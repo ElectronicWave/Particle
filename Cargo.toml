@@ -6,10 +6,8 @@ edition = "2024"
 [dependencies]
 elemental = { git = "https://github.com/ElectronicWave/Elemental", package = "elemental-kit" }
 anyhow = "1.0.102"
-arc-swap = "1.9.1"
-clap = "4.6.1"
 color-eyre = "0.6.5"
+ratail = { git = "https://github.com/ElectronicWave/ratail" }
 ratatui = "0.30.0"
-tokio = "1.52.1"
-tui-popup = "0.7.4"
+tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
 tui-scrollview = "0.6.4"

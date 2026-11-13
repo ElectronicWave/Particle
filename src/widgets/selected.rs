@@ -42,10 +42,6 @@ impl SelectedScrollViewState {
         self.selected = self.selected.saturating_sub(1);
         self.scroll.scroll_up();
     }
-
-    pub fn selected(&self) -> usize {
-        self.selected
-    }
 }
 
 impl<'a, T, R> StatefulWidget for SelectedScrollView<'a, T, R>

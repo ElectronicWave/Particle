@@ -1,5 +1,4 @@
-use std::pin::Pin;
-
+use ratail::KeyHint;
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
@@ -7,31 +6,39 @@ use ratatui::{
 };
 use tui_scrollview::ScrollViewState;
 
-use crate::pages::content::{Content, container};
-#[derive(Debug, Clone, Default)]
-pub struct HomeContent(HomeContentState);
-#[derive(Debug, Clone, Default)]
-pub struct HomeContentState {
+use crate::app::services::Services;
+use crate::pages::content::{Content, ContentEvent, container};
+
+const HOME_HINTS: &[KeyHint] = &[
+    KeyHint::from_static("↑/↓", "Scroll"),
+    KeyHint::from_static("ESC", "Return"),
+];
+
+#[derive(Debug, Default)]
+pub struct HomeContent {
     scroll: ScrollViewState,
-    focus: usize,
 }
 
-pub enum HomeContentWidgets {}
-
 impl Content for HomeContent {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let inner = container(frame, area);
+    fn render(&mut self, _ctx: &Services, frame: &mut Frame, area: Rect) {
+        let _inner = container(frame, area);
     }
 
-    fn on_key(&mut self, key: KeyEvent) {
+    fn on_key(&mut self, _ctx: &Services, key: KeyEvent) -> ContentEvent {
         match key.code {
-            KeyCode::Down => self.0.scroll.scroll_down(),
-            KeyCode::Up => self.0.scroll.scroll_up(),
-            _ => {}
+            KeyCode::Down => {
+                self.scroll.scroll_down();
+                ContentEvent::Handled
+            }
+            KeyCode::Up => {
+                self.scroll.scroll_up();
+                ContentEvent::Handled
+            }
+            _ => ContentEvent::Ignored,
         }
     }
 
-    fn keybindings(&self) -> Option<Box<[(&'static str, &'static str)]>> {
-        Some(Box::new([("↑/↓", "Scroll"), ("ESC", "Return")]))
+    fn keybindings(&self) -> Vec<KeyHint> {
+        HOME_HINTS.to_vec()
     }
 }

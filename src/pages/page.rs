@@ -1,153 +1,116 @@
+use ratail::{KeyHint, NavAction, Page, PageEvent};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
-    layout::{Constraint, Direction, Layout, Rect, Spacing},
+    crossterm::event::{KeyCode, KeyEvent, KeyEventKind},
+    layout::{Constraint, Layout, Rect, Spacing},
 };
 
-use crate::pages::content::{ContentState, sidebar_entries};
-use crate::widgets::{
-    sidebar::{Sidebar, SidebarState},
-    titlebar::{TitleBar, TitleBarState},
-};
+use crate::app::services::Services;
+use crate::pages::content::{Content, ContentEvent};
+use crate::pages::route::Route;
+use crate::widgets::sidebar::Sidebar;
+use crate::widgets::titlebar::TitleBar;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum PageControlMode {
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum Focus {
     Sidebar,
     Content,
 }
 
-#[derive(Debug, Clone)]
-pub struct Page {
-    pub titlebar: TitleBarState,
-    pub sidebar: SidebarState,
-    pub control_mode: PageControlMode,
-    pub content: ContentState,
+const SIDEBAR_HINTS: &[KeyHint] = &[
+    KeyHint::from_static("↑/↓", "Browse"),
+    KeyHint::from_static("ENTER", "Focus"),
+];
+
+pub struct ShellPage<C> {
+    route: Route,
+    focus: Focus,
+    content: C,
 }
 
-impl Page {
-    pub fn sidebar_entry_count(&self) -> usize {
-        let entry_count = sidebar_entries().len();
-
-        if entry_count == 0 {
-            panic!("Sidebar should contain at least one entry");
-        }
-
-        entry_count
-    }
-
-    pub fn selected_sidebar_index(&self) -> usize {
-        let selected_index = self.sidebar.list.selected().unwrap_or(0);
-        let last_index = self.sidebar_entry_count() - 1;
-
-        selected_index.min(last_index)
-    }
-
-    pub fn selected_sidebar_entry(&self) -> &'static crate::pages::content::SidebarEntry {
-        &sidebar_entries()[self.selected_sidebar_index()]
-    }
-
-    pub fn normalize_sidebar_selection(&mut self) {
-        let selected_index = self.selected_sidebar_index();
-        self.sidebar.list.select(Some(selected_index));
-    }
-
-    pub fn select_next_sidebar_item(&mut self) {
-        let selected_index = self.selected_sidebar_index();
-        let last_index = self.sidebar_entry_count() - 1;
-        let next_index = selected_index.saturating_add(1).min(last_index);
-
-        self.sidebar.list.select(Some(next_index));
-    }
-
-    pub fn select_previous_sidebar_item(&mut self) {
-        let selected_index = self.selected_sidebar_index();
-        let previous_index = selected_index.saturating_sub(1);
-
-        self.sidebar.list.select(Some(previous_index));
-    }
-
-    pub fn enter_content_control(&mut self) {
-        self.control_mode = PageControlMode::Content;
-    }
-
-    pub fn exit_content_control(&mut self) {
-        self.control_mode = PageControlMode::Sidebar;
-    }
-
-    pub fn on_key(&mut self, key: KeyEvent) {
-        if !key.is_press() {
-            return;
-        }
-
-        match self.control_mode {
-            PageControlMode::Sidebar => match key.code {
-                KeyCode::Down => self.select_next_sidebar_item(),
-                KeyCode::Up => self.select_previous_sidebar_item(),
-                KeyCode::Enter => {
-                    self.enter_content_control();
-                    self.titlebar.keybindings =
-                        self.content.keybindings(self.selected_sidebar_entry().id);
-                }
-                _ => {}
-            },
-            PageControlMode::Content => match key.code {
-                KeyCode::Esc => {
-                    self.exit_content_control();
-                    self.titlebar.keybindings.take();
-                }
-                _ => self.content.on_key(self.selected_sidebar_entry().id, key),
-            },
-        }
-    }
-
-    pub fn sidebar_items(&self) -> Vec<String> {
-        sidebar_entries()
-            .iter()
-            .map(|entry| entry.label.to_string())
-            .collect()
-    }
-
-    pub fn render_active_page(&mut self, frame: &mut Frame, area: Rect) {
-        self.content
-            .render(self.selected_sidebar_entry().id, frame, area);
-    }
-
-    pub fn render(&mut self, frame: &mut Frame) {
-        self.normalize_sidebar_selection();
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Max(4), Constraint::Fill(1)])
-            .spacing(Spacing::Overlap(1))
-            .split(frame.area());
-
-        let titlebar_area = chunks[0];
-        let content_area = chunks[1];
-
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .spacing(Spacing::Overlap(1))
-            .constraints(vec![Constraint::Max(20), Constraint::Fill(1)])
-            .split(content_area);
-        let sidebar_area = chunks[0];
-        let page_area = chunks[1];
-
-        let titlebar = TitleBar;
-        let sidebar = Sidebar::new(self.sidebar_items());
-
-        frame.render_stateful_widget(titlebar, titlebar_area, &mut self.titlebar);
-        frame.render_stateful_widget(sidebar, sidebar_area, &mut self.sidebar);
-        self.render_active_page(frame, page_area);
-    }
-}
-
-impl Default for Page {
-    fn default() -> Self {
+impl<C> ShellPage<C> {
+    pub fn new(route: Route, content: C) -> Self {
         Self {
-            titlebar: TitleBarState::default(),
-            sidebar: SidebarState::default(),
-            control_mode: PageControlMode::Sidebar,
-            content: ContentState::default(),
+            route,
+            focus: Focus::Sidebar,
+            content,
         }
+    }
+
+    fn on_sidebar_key(&mut self, key: KeyEvent) -> PageEvent<Route> {
+        match key.code {
+            KeyCode::Down => self.navigate_to(self.route.next()),
+            KeyCode::Up => self.navigate_to(self.route.previous()),
+            KeyCode::Enter => {
+                self.focus = Focus::Content;
+                PageEvent::Handled
+            }
+            _ => PageEvent::Ignored,
+        }
+    }
+
+    fn navigate_to(&self, route: Route) -> PageEvent<Route> {
+        if route == self.route {
+            PageEvent::Handled
+        } else {
+            PageEvent::Navigate(NavAction::Replace(route))
+        }
+    }
+}
+
+impl<C: Content + 'static> Page<Services> for ShellPage<C> {
+    fn init(&mut self, ctx: &Services) {
+        self.content.init(ctx);
+    }
+
+    fn keybindings(&self) -> Vec<KeyHint> {
+        match self.focus {
+            Focus::Sidebar => SIDEBAR_HINTS.to_vec(),
+            Focus::Content => self.content.keybindings(),
+        }
+    }
+
+    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PageEvent<Route> {
+        if key.kind == KeyEventKind::Release {
+            return PageEvent::Ignored;
+        }
+
+        match self.focus {
+            Focus::Sidebar => self.on_sidebar_key(key),
+            Focus::Content => match key.code {
+                KeyCode::Esc => {
+                    self.focus = Focus::Sidebar;
+                    PageEvent::Handled
+                }
+                _ => match self.content.on_key(ctx, key) {
+                    ContentEvent::Handled => PageEvent::Handled,
+                    ContentEvent::Ignored => PageEvent::Ignored,
+                },
+            },
+        }
+    }
+
+    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+        let [titlebar_area, body_area] =
+            Layout::vertical([Constraint::Max(4), Constraint::Fill(1)])
+                .spacing(Spacing::Overlap(1))
+                .areas(area);
+
+        let [sidebar_area, content_area] =
+            Layout::horizontal([Constraint::Max(20), Constraint::Fill(1)])
+                .spacing(Spacing::Overlap(1))
+                .areas(body_area);
+
+        let sidebar_items = Route::all()
+            .iter()
+            .map(|route| route.label().to_string())
+            .collect::<Vec<String>>();
+
+        frame.render_widget(TitleBar, titlebar_area);
+        frame.render_widget(
+            Sidebar::new(sidebar_items, self.route.index()),
+            sidebar_area,
+        );
+        self.content.render(ctx, frame, content_area);
     }
 }

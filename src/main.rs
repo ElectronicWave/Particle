@@ -4,13 +4,27 @@ mod pages;
 mod widgets;
 
 use color_eyre::Result;
+use ratail::{App, AppFlow, KeyChord, KeyHint};
 
-use crate::app::tui::App;
+use crate::app::hints;
+use crate::app::router::AppRouter;
+use crate::app::services::Services;
+use crate::pages::route::Route;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
-    let mut app = App::new();
-    ratatui::run(|terminal| app.run(terminal))?;
+
+    let mut app = App::new(Services::new(), AppRouter, Route::Home);
+    app.bind_global(KeyChord::ctrl('q'), KeyHint::new("Ctrl+Q", "Quit"), |_| {
+        AppFlow::Exit
+    });
+    app.set_hint_renderer(hints::render);
+
+    let mut terminal = ratatui::init();
+    let result = app.run(&mut terminal).await;
+    ratatui::restore();
+    result?;
+
     Ok(())
 }

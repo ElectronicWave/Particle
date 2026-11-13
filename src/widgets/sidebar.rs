@@ -3,35 +3,22 @@ use ratatui::{
     layout::Rect,
     style::Style,
     symbols::merge::MergeStrategy,
-    widgets::{Block, Borders, List, ListState, StatefulWidget},
+    widgets::{Block, Borders, List, ListState, StatefulWidget, Widget},
 };
 
 pub struct Sidebar {
     items: Vec<String>,
+    selected: usize,
 }
 
 impl Sidebar {
-    pub fn new(items: Vec<String>) -> Self {
-        Self { items }
-    }
-}
-#[derive(Debug, Clone)]
-pub struct SidebarState {
-    pub list: ListState,
-}
-
-impl Default for SidebarState {
-    fn default() -> Self {
-        Self {
-            list: ListState::default().with_selected(Some(0)),
-        }
+    pub fn new(items: Vec<String>, selected: usize) -> Self {
+        Self { items, selected }
     }
 }
 
-impl StatefulWidget for Sidebar {
-    type State = SidebarState;
-
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+impl Widget for Sidebar {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         let list = List::new(self.items)
             .block(
                 Block::default()
@@ -42,6 +29,8 @@ impl StatefulWidget for Sidebar {
             .highlight_style(Style::new().italic().light_green())
             .highlight_symbol(">")
             .repeat_highlight_symbol(true);
-        list.render(area, buf, &mut state.list);
+
+        let mut state = ListState::default().with_selected(Some(self.selected));
+        StatefulWidget::render(list, area, buf, &mut state);
     }
 }
