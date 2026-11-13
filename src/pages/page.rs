@@ -9,7 +9,6 @@ use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
 use crate::pages::route::Route;
 use crate::widgets::sidebar::Sidebar;
-use crate::widgets::titlebar::TitleBar;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum Focus {
@@ -91,22 +90,16 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let [titlebar_area, body_area] =
-            Layout::vertical([Constraint::Max(4), Constraint::Fill(1)])
-                .spacing(Spacing::Overlap(1))
-                .areas(area);
-
         let [sidebar_area, content_area] =
             Layout::horizontal([Constraint::Max(20), Constraint::Fill(1)])
                 .spacing(Spacing::Overlap(1))
-                .areas(body_area);
+                .areas(area);
 
         let sidebar_items = Route::all()
             .iter()
             .map(|route| route.label().to_string())
             .collect::<Vec<String>>();
 
-        frame.render_widget(TitleBar, titlebar_area);
         frame.render_widget(
             Sidebar::new(sidebar_items, self.route.index()),
             sidebar_area,

@@ -59,3 +59,9 @@ pub fn container(frame: &mut Frame, area: Rect) -> Rect {
         height: inner.height,
     }
 }
+
+pub fn render_message(frame: &mut Frame, area: Rect, message: &str) {
+    Paragraph::new(message)
+        .centered()
+        .render(area, frame.buffer_mut());
+}

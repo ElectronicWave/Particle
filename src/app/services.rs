@@ -1,28 +1,74 @@
 use anyhow::Error;
+use elemental::{
+    core::minecraft::MinecraftVersionId,
+    driver::{
+        catalog::{GameVersion, LoaderRelease},
+        driver::DriverDescriptor,
+    },
+    launcher::{DriverCatalog, Launcher},
+};
 use ratail::{Context, Redraw, Task, TaskCache};
 
-use crate::pages::contents::catalog::{CatalogDriver, VersionData, load_versions};
+use crate::pages::contents::catalog::{load_loader_versions, load_versions};
 use crate::pages::route::Route;
 
 pub struct Services {
     redraw: Redraw,
-    catalog: TaskCache<CatalogDriver, Vec<VersionData>, Error>,
+    #[allow(dead_code)]
+    launcher: Launcher,
+    drivers: Vec<DriverDescriptor>,
+    catalogs: TaskCache<&'static str, Vec<GameVersion>, Error>,
+    loader_versions: TaskCache<(&'static str, MinecraftVersionId), Vec<LoaderRelease>, Error>,
 }
 
 impl Services {
     pub fn new() -> Self {
         let redraw = Redraw::new();
-        let catalog = TaskCache::new(&redraw);
+        let launcher = Launcher::builder().build();
+        let drivers = DriverCatalog::supported_drivers().collect();
+        let catalogs = TaskCache::new(&redraw);
+        let loader_versions = TaskCache::new(&redraw);
 
-        Self { redraw, catalog }
+        Self {
+            redraw,
+            launcher,
+            drivers,
+            catalogs,
+            loader_versions,
+        }
     }
 
-    pub fn catalog(&self, driver: CatalogDriver) -> Task<Vec<VersionData>, Error> {
-        self.catalog.get_or_create(&driver)
+    #[allow(dead_code)]
+    pub fn launcher(&self) -> &Launcher {
+        &self.launcher
     }
 
-    pub fn load_catalog(&self, driver: CatalogDriver) -> bool {
-        self.catalog.spawn_once(driver, load_versions)
+    pub fn drivers(&self) -> &[DriverDescriptor] {
+        &self.drivers
+    }
+
+    pub fn catalog(&self, driver: DriverDescriptor) -> Task<Vec<GameVersion>, Error> {
+        self.catalogs.get_or_create(&driver.id)
+    }
+
+    pub fn load_catalog(&self, driver: DriverDescriptor) -> bool {
+        self.catalogs
+            .spawn_once(driver.id, move |_| load_versions(driver))
+    }
+
+    pub fn loader_versions(
+        &self,
+        driver: DriverDescriptor,
+        game: &MinecraftVersionId,
+    ) -> Task<Vec<LoaderRelease>, Error> {
+        self.loader_versions
+            .get_or_create(&(driver.id, game.clone()))
+    }
+
+    pub fn load_loader_versions(&self, driver: DriverDescriptor, game: MinecraftVersionId) -> bool {
+        let key = (driver.id, game.clone());
+        self.loader_versions
+            .spawn_once(key, move |_| load_loader_versions(driver, game))
     }
 }
 

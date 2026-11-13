@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-elemental = { git = "https://github.com/ElectronicWave/Elemental", package = "elemental-kit" }
+elemental = { version = "0.2.0", package = "elemental-kit" }
 anyhow = "1.0.102"
 color-eyre = "0.6.5"
 ratail = { git = "https://github.com/ElectronicWave/ratail" }
