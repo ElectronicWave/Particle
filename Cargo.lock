@@ -609,9 +609,8 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "elemental-core"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8ef5e450cf9681b999429115e56159317a1581c0e949e6ec8ff2d63360861c9"
+version = "0.3.0"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
 dependencies = [
  "async-trait",
  "dirs",
@@ -636,9 +635,8 @@ dependencies = [
 
 [[package]]
 name = "elemental-driver"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "545d2c67572d049de50d10a8db12db0d722691fb1b25bcb4e67d8e5d05df2df4"
+version = "0.3.0"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
 dependencies = [
  "async-trait",
  "elemental-core",
@@ -656,9 +654,8 @@ dependencies = [
 
 [[package]]
 name = "elemental-infra"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aa3b8eeb9bdc0c3fa540b2b6c7a67c50470d51d73d576a09fbfb35a2c1ff63e"
+version = "0.3.0"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
 dependencies = [
  "async-trait",
  "futures",
@@ -674,24 +671,21 @@ dependencies = [
 
 [[package]]
 name = "elemental-kit"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213992fd660171c952b554362e50151067241d37d2f72850ca585b1d2c7938cb"
+version = "0.3.0"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
 dependencies = [
  "elemental-core",
  "elemental-driver",
  "elemental-infra",
  "elemental-launcher",
- "elemental-object",
  "elemental-schema",
  "elemental-shared",
 ]
 
 [[package]]
 name = "elemental-launcher"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c6047ff3d24589989225b373b78df19cfdf29543ffbf09a1c8e725ccd34d0aa"
+version = "0.3.0"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
 dependencies = [
  "elemental-core",
  "elemental-driver",
@@ -705,22 +699,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "elemental-object"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e2074fc0c02b47add9644116c1b13b6b384f35ac3e08551e4d69e26cba8bc95"
-dependencies = [
- "async-trait",
- "scc",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
 name = "elemental-schema"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8db0ca83d079da99dbf70a6467b3b609edb2cbf9d1872251fcc8076e6eb0112b"
+version = "0.3.0"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
 dependencies = [
  "jiff",
  "serde",
@@ -729,15 +710,15 @@ dependencies = [
 
 [[package]]
 name = "elemental-shared"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fa858fc25e3a7e471d74bb83893cf4229dbb62e1309e3c02d5397e02c5a7617"
+version = "0.3.0"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
 dependencies = [
  "dirs",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -2013,8 +1994,9 @@ dependencies = [
  "elemental-kit",
  "ratail",
  "ratatui",
+ "serde",
  "tokio",
- "tui-scrollview",
+ "toml",
 ]
 
 [[package]]
@@ -2771,9 +2753,9 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "serde"
-version = "1.0.228"
+version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
@@ -2781,22 +2763,22 @@ dependencies = [
 
 [[package]]
 name = "serde_core"
-version = "1.0.228"
+version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
+checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.228"
+version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
+checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -3437,17 +3419,6 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
-
-[[package]]
-name = "tui-scrollview"
-version = "0.6.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "997f1ad8c98f3c1928bdf05a288d5ea5557b4261ea7c4c86fbf273f79b584da8"
-dependencies = [
- "indoc",
- "ratatui-core",
- "ratatui-widgets",
-]
 
 [[package]]
 name = "typed-path"

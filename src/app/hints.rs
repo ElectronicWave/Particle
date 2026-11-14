@@ -2,7 +2,7 @@ use ratail::KeyHint;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
@@ -10,6 +10,7 @@ use ratatui::{
 use super::services::Services;
 
 pub fn render(_ctx: &Services, hints: &[KeyHint], area: Rect, buf: &mut Buffer) {
+    let theme = _ctx.theme();
     let mut spans = Vec::new();
 
     for (index, hint) in hints.iter().enumerate() {
@@ -19,9 +20,7 @@ pub fn render(_ctx: &Services, hints: &[KeyHint], area: Rect, buf: &mut Buffer) 
 
         spans.push(Span::styled(
             format!("[{}]", hint.key),
-            Style::default()
-                .fg(Color::LightGreen)
-                .add_modifier(Modifier::BOLD),
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::raw(format!("{} ", hint.description)));
     }

@@ -3,13 +3,17 @@ pub enum Route {
     Home,
     Instances,
     Catalog,
+    Downloads,
+    Accounts,
     Settings,
 }
 
-const ROUTES: [Route; 4] = [
+const ROUTES: [Route; 6] = [
     Route::Home,
     Route::Instances,
     Route::Catalog,
+    Route::Downloads,
+    Route::Accounts,
     Route::Settings,
 ];
 
@@ -23,7 +27,9 @@ impl Route {
             Self::Home => 0,
             Self::Instances => 1,
             Self::Catalog => 2,
-            Self::Settings => 3,
+            Self::Downloads => 3,
+            Self::Accounts => 4,
+            Self::Settings => 5,
         }
     }
 
@@ -32,6 +38,8 @@ impl Route {
             Self::Home => "Home",
             Self::Instances => "Instances",
             Self::Catalog => "Catalog",
+            Self::Downloads => "Downloads",
+            Self::Accounts => "Accounts",
             Self::Settings => "Settings",
         }
     }

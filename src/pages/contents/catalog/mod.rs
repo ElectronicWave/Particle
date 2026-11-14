@@ -1,33 +1,42 @@
 mod filter;
 mod game_versions;
+mod instance_name;
 mod loader_versions;
 
 pub use game_versions::load_versions;
 pub use loader_versions::load_loader_versions;
 
-use elemental::{core::minecraft::MinecraftVersionId, driver::driver::DriverDescriptor};
+use elemental::{
+    core::minecraft::MinecraftVersionId,
+    driver::{descriptors::VANILLA_DRIVER, driver::DriverDescriptor},
+};
 use ratail::KeyHint;
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
-    widgets::{Tabs, Widget},
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
 };
 
 use self::{
     filter::VersionFilter,
     game_versions::GameVersionsScreen,
+    instance_name::{InstanceNameScreen, NameAction},
     loader_versions::{LoaderSelection, LoaderVersionsScreen},
 };
 use crate::app::services::Services;
-use crate::pages::content::{Content, ContentEvent, container};
+use crate::pages::content::{Content, ContentEvent};
+use crate::pages::route::Route;
+use crate::theme::Theme;
+use crate::widgets::tabs::TabBar;
 
 const CATALOG_HINTS: &[KeyHint] = &[
     KeyHint::from_static("←/→", "Driver"),
     KeyHint::from_static("Tab", "Filter"),
     KeyHint::from_static("↑/↓", "Scroll"),
-    KeyHint::from_static("ENTER", "Loader"),
+    KeyHint::from_static("ENTER", "Select"),
     KeyHint::from_static("ESC", "Return"),
 ];
 
@@ -35,6 +44,11 @@ const LOADER_HINTS: &[KeyHint] = &[
     KeyHint::from_static("↑/↓", "Scroll"),
     KeyHint::from_static("ENTER", "Select"),
     KeyHint::from_static("ESC", "Versions"),
+];
+
+const NAME_HINTS: &[KeyHint] = &[
+    KeyHint::from_static("ENTER", "Install"),
+    KeyHint::from_static("ESC", "Back"),
 ];
 
 enum ScreenAction {
@@ -49,6 +63,7 @@ enum ScreenAction {
 enum Screen {
     GameVersions(GameVersionsScreen),
     LoaderVersions(LoaderVersionsScreen),
+    InstanceName(InstanceNameScreen),
 }
 
 #[derive(Debug)]
@@ -76,24 +91,36 @@ impl Content for CatalogContent {
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let inner = container(frame, area);
+        let theme = ctx.theme();
         let [driver_area, secondary_area, body_area] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Fill(1),
         ])
-        .areas(inner);
-        render_driver_tabs(frame, driver_area, ctx.drivers(), self.driver);
+        .areas(area);
+        render_driver_tabs(frame, driver_area, ctx.drivers(), self.driver, theme);
 
         let driver = ctx.drivers()[self.driver];
         match &mut self.screen {
             Screen::GameVersions(screen) => {
-                render_filter_tabs(frame, secondary_area, self.filter);
+                render_filter_tabs(frame, secondary_area, self.filter, theme);
                 screen.render(ctx, frame, body_area, driver, self.filter);
             }
             Screen::LoaderVersions(screen) => {
-                loader_versions::render_header(frame, secondary_area, screen.game());
+                loader_versions::render_header(frame, secondary_area, screen.game(), theme);
                 screen.render(ctx, frame, body_area, driver, self.selection.as_ref());
+            }
+            Screen::InstanceName(screen) => {
+                if let Some(selection) = &self.selection {
+                    render_flow_header(
+                        frame,
+                        secondary_area,
+                        &selection.game.to_string(),
+                        "instance name",
+                        theme,
+                    );
+                }
+                screen.render(frame, body_area, theme);
             }
         }
     }
@@ -126,27 +153,61 @@ impl Content for CatalogContent {
         }
 
         let driver = ctx.drivers()[self.driver];
-        let action = match &mut self.screen {
-            Screen::GameVersions(screen) => screen.on_key(ctx, key, driver, self.filter),
-            Screen::LoaderVersions(screen) => screen.on_key(ctx, key, driver),
-        };
-
-        match action {
-            ScreenAction::Ignored => ContentEvent::Ignored,
-            ScreenAction::Handled => ContentEvent::Handled,
-            ScreenAction::OpenLoader(game) => {
-                self.screen = Screen::LoaderVersions(LoaderVersionsScreen::new(game.clone()));
-                ctx.load_loader_versions(driver, game);
-                ContentEvent::Handled
+        match &mut self.screen {
+            Screen::GameVersions(screen) => {
+                let action = screen.on_key(ctx, key, driver, self.filter);
+                match action {
+                    ScreenAction::Ignored => ContentEvent::Ignored,
+                    ScreenAction::Handled => ContentEvent::Handled,
+                    ScreenAction::OpenLoader(game) => {
+                        if driver == VANILLA_DRIVER {
+                            self.open_instance_name(LoaderSelection { game, loader: None });
+                        } else {
+                            self.screen =
+                                Screen::LoaderVersions(LoaderVersionsScreen::new(game.clone()));
+                            ctx.load_loader_versions(driver, game);
+                        }
+                        ContentEvent::Handled
+                    }
+                    ScreenAction::Back | ScreenAction::Selected(_) => ContentEvent::Handled,
+                }
             }
-            ScreenAction::Back => {
-                self.screen = Screen::GameVersions(GameVersionsScreen::default());
-                ContentEvent::Handled
+            Screen::LoaderVersions(screen) => {
+                let action = screen.on_key(ctx, key, driver);
+                match action {
+                    ScreenAction::Ignored => ContentEvent::Ignored,
+                    ScreenAction::Handled => ContentEvent::Handled,
+                    ScreenAction::Back => {
+                        self.screen = Screen::GameVersions(GameVersionsScreen::default());
+                        ContentEvent::Handled
+                    }
+                    ScreenAction::Selected(selection) => {
+                        self.open_instance_name(selection);
+                        ContentEvent::Handled
+                    }
+                    ScreenAction::OpenLoader(_) => ContentEvent::Handled,
+                }
             }
-            ScreenAction::Selected(selection) => {
-                self.selection = Some(selection);
-                ContentEvent::Handled
-            }
+            Screen::InstanceName(screen) => match screen.on_key(key) {
+                NameAction::Ignored => ContentEvent::Ignored,
+                NameAction::Handled => ContentEvent::Handled,
+                NameAction::Cancel => {
+                    self.leave_instance_name();
+                    ContentEvent::Handled
+                }
+                NameAction::Submit(instance_name) => {
+                    if let Some(selection) = &self.selection {
+                        ctx.start_install(
+                            instance_name,
+                            driver,
+                            selection.game.clone(),
+                            selection.loader.clone(),
+                        );
+                        return ContentEvent::Navigate(Route::Downloads);
+                    }
+                    ContentEvent::Handled
+                }
+            },
         }
     }
 
@@ -154,6 +215,7 @@ impl Content for CatalogContent {
         match &self.screen {
             Screen::GameVersions(_) => CATALOG_HINTS.to_vec(),
             Screen::LoaderVersions(_) => LOADER_HINTS.to_vec(),
+            Screen::InstanceName(_) => NAME_HINTS.to_vec(),
         }
     }
 }
@@ -186,6 +248,40 @@ impl CatalogContent {
             screen.reset();
         }
     }
+
+    fn open_instance_name(&mut self, selection: LoaderSelection) {
+        let default = default_instance_name(&selection);
+        self.selection = Some(selection);
+        self.screen = Screen::InstanceName(InstanceNameScreen::new(default));
+    }
+
+    fn leave_instance_name(&mut self) {
+        match self.selection.take() {
+            Some(selection) if selection.loader.is_some() => {
+                let game = selection.game.clone();
+                self.selection = Some(selection);
+                self.screen = Screen::LoaderVersions(LoaderVersionsScreen::new(game));
+            }
+            _ => {
+                self.screen = Screen::GameVersions(GameVersionsScreen::default());
+            }
+        }
+    }
+}
+
+fn default_instance_name(selection: &LoaderSelection) -> String {
+    match &selection.loader {
+        Some(loader) => format!("{}-{}", selection.game, loader),
+        None => selection.game.to_string(),
+    }
+}
+
+fn render_flow_header(frame: &mut Frame, area: Rect, label: &str, suffix: &str, theme: Theme) {
+    let line = Line::from(vec![
+        Span::styled(label.to_owned(), Style::new().add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  ›  {suffix}"), Style::new().fg(theme.text_dim)),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
 }
 
 fn render_driver_tabs(
@@ -193,21 +289,16 @@ fn render_driver_tabs(
     area: Rect,
     drivers: &[DriverDescriptor],
     selected: usize,
+    theme: Theme,
 ) {
-    let (start, end) = visible_driver_range(drivers, selected, area.width as usize);
-    let titles = drivers[start..end]
+    let titles = drivers
         .iter()
         .map(|driver| driver.name)
         .collect::<Vec<&str>>();
-
-    Tabs::new(titles)
-        .select(selected - start)
-        .highlight_style(Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED))
-        .divider("│")
-        .render(area, frame.buffer_mut());
+    frame.render_widget(TabBar::new(theme, &titles, selected), area);
 }
 
-fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter) {
+fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter, theme: Theme) {
     let titles = VersionFilter::ORDER
         .iter()
         .map(|filter| filter.label())
@@ -217,55 +308,5 @@ fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter) {
         .position(|filter| *filter == selected)
         .unwrap_or(0);
 
-    Tabs::new(titles)
-        .select(index)
-        .style(Style::default().fg(Color::DarkGray))
-        .highlight_style(Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED))
-        .divider("│")
-        .render(area, frame.buffer_mut());
-}
-
-fn visible_driver_range(
-    drivers: &[DriverDescriptor],
-    selected: usize,
-    width: usize,
-) -> (usize, usize) {
-    let widths = drivers
-        .iter()
-        .map(|driver| driver.name.chars().count() + 2)
-        .collect::<Vec<usize>>();
-    let mut start = selected;
-    let mut end = selected + 1;
-    let mut used = widths[selected];
-    let mut prefer_left = true;
-
-    loop {
-        let mut expanded = false;
-
-        if prefer_left && start > 0 && used + 1 + widths[start - 1] <= width {
-            start -= 1;
-            used += 1 + widths[start];
-            expanded = true;
-        } else if !prefer_left && end < widths.len() && used + 1 + widths[end] <= width {
-            used += 1 + widths[end];
-            end += 1;
-            expanded = true;
-        } else if start > 0 && used + 1 + widths[start - 1] <= width {
-            start -= 1;
-            used += 1 + widths[start];
-            expanded = true;
-        } else if end < widths.len() && used + 1 + widths[end] <= width {
-            used += 1 + widths[end];
-            end += 1;
-            expanded = true;
-        }
-
-        if !expanded {
-            break;
-        }
-
-        prefer_left = !prefer_left;
-    }
-
-    (start, end)
+    frame.render_widget(TabBar::new(theme, &titles, index).secondary(), area);
 }

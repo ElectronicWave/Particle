@@ -15,6 +15,7 @@ use ratatui::{
 use super::{ScreenAction, filter::VersionFilter};
 use crate::app::services::Services;
 use crate::pages::content::render_message;
+use crate::theme::Theme;
 
 #[derive(Debug)]
 pub(super) struct GameVersionsScreen {
@@ -42,26 +43,27 @@ impl GameVersionsScreen {
         driver: DriverDescriptor,
         filter: VersionFilter,
     ) {
+        let theme = ctx.theme();
         let snapshot = ctx.catalog(driver).snapshot();
 
         match &*snapshot {
             Snapshot::Idle => render_message(frame, area, "Loading..."),
             Snapshot::Loading { previous } => match previous {
-                Some(data) => self.render_versions(data, frame, area, filter),
+                Some(data) => self.render_versions(data, frame, area, filter, theme),
                 None => render_message(frame, area, "Loading..."),
             },
-            Snapshot::Ready(data) => self.render_versions(data, frame, area, filter),
+            Snapshot::Ready(data) => self.render_versions(data, frame, area, filter, theme),
             Snapshot::Error { error, previous } => match previous {
                 Some(data) => {
                     let [error_area, list_area] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
                     render_message(frame, error_area, &format!("Error: {error}"));
-                    self.render_versions(data, frame, list_area, filter);
+                    self.render_versions(data, frame, list_area, filter, theme);
                 }
                 None => render_message(frame, area, &format!("Error: {error}")),
             },
             Snapshot::Cancelled { previous } => match previous {
-                Some(data) => self.render_versions(data, frame, area, filter),
+                Some(data) => self.render_versions(data, frame, area, filter, theme),
                 None => render_message(frame, area, "Cancelled"),
             },
         }
@@ -97,6 +99,7 @@ impl GameVersionsScreen {
         frame: &mut Frame,
         area: Rect,
         filter: VersionFilter,
+        theme: Theme,
     ) {
         let versions = data
             .iter()
@@ -116,8 +119,12 @@ impl GameVersionsScreen {
             .iter()
             .map(|version| ListItem::new(version.id.to_string()))
             .collect::<Vec<ListItem>>();
-        let list =
-            List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+        let list = List::new(items).highlight_style(
+            Style::new()
+                .fg(theme.selection_fg)
+                .bg(theme.selection_bg)
+                .add_modifier(Modifier::BOLD),
+        );
 
         frame.render_stateful_widget(list, area, &mut self.versions);
     }

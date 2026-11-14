@@ -4,20 +4,24 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-elemental = { version = "0.2.0", package = "elemental-kit" }
+elemental = { git = "https://github.com/ElectronicWave/Elemental", branch = "main", package = "elemental-kit", default-features = false, features = [
+    "launcher",
+    "shared-toml",
+] }
 anyhow = "1.0.102"
 color-eyre = "0.6.5"
 ratail = { git = "https://github.com/ElectronicWave/ratail" }
 ratatui = "0.30.0"
-tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
-tui-scrollview = "0.6.4"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1"
+tokio = { version = "1.52.1", features = ["macros", "process", "rt-multi-thread"] }
 
 [profile.release]
 codegen-units = 1           # reduces binary size by ~2%
 debug = "full"              # keeps release artifacts debuggable
 lto = true                  # reduces binary size by ~14%
-opt-level = "s"             # reduces binary size by ~25%
+opt-level = "z"             # minimizes binary size
 panic = "abort"             # reduces binary size when combined with panic_immediate_abort
 split-debuginfo = "packed"  # emits a separate *.dwp/*.dSYM so the binary can be stripped
 strip = "symbols"           # see split-debuginfo; drops symbols from the executable
-incremental = true          # improves re-compile times
+incremental = true         # lets LTO optimize across the whole program

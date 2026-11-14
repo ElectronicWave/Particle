@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, ListState, Paragraph},
 };
@@ -16,11 +16,12 @@ use ratatui::{
 use super::ScreenAction;
 use crate::app::services::Services;
 use crate::pages::content::render_message;
+use crate::theme::Theme;
 
 #[derive(Clone, Debug)]
 pub(super) struct LoaderSelection {
     pub(super) game: MinecraftVersionId,
-    pub(super) loader: LoaderVersionId,
+    pub(super) loader: Option<LoaderVersionId>,
 }
 
 #[derive(Debug)]
@@ -49,26 +50,27 @@ impl LoaderVersionsScreen {
         driver: DriverDescriptor,
         selection: Option<&LoaderSelection>,
     ) {
+        let theme = ctx.theme();
         let snapshot = ctx.loader_versions(driver, &self.game).snapshot();
 
         match &*snapshot {
             Snapshot::Idle => render_message(frame, area, "Loading..."),
             Snapshot::Loading { previous } => match previous {
-                Some(data) => self.render_list(data, frame, area, selection),
+                Some(data) => self.render_list(data, frame, area, selection, theme),
                 None => render_message(frame, area, "Loading..."),
             },
-            Snapshot::Ready(data) => self.render_list(data, frame, area, selection),
+            Snapshot::Ready(data) => self.render_list(data, frame, area, selection, theme),
             Snapshot::Error { error, previous } => match previous {
                 Some(data) => {
                     let [error_area, list_area] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
                     render_message(frame, error_area, &format!("Error: {error}"));
-                    self.render_list(data, frame, list_area, selection);
+                    self.render_list(data, frame, list_area, selection, theme);
                 }
                 None => render_message(frame, area, &loader_error_message(error)),
             },
             Snapshot::Cancelled { previous } => match previous {
-                Some(data) => self.render_list(data, frame, area, selection),
+                Some(data) => self.render_list(data, frame, area, selection, theme),
                 None => render_message(frame, area, "Cancelled"),
             },
         }
@@ -93,7 +95,7 @@ impl LoaderVersionsScreen {
             KeyCode::Enter => match self.selected_loader(ctx, driver) {
                 Some(loader) => ScreenAction::Selected(LoaderSelection {
                     game: self.game.clone(),
-                    loader,
+                    loader: Some(loader),
                 }),
                 None => ScreenAction::Handled,
             },
@@ -107,6 +109,7 @@ impl LoaderVersionsScreen {
         frame: &mut Frame,
         area: Rect,
         selection: Option<&LoaderSelection>,
+        theme: Theme,
     ) {
         if data.is_empty() {
             render_message(frame, area, "No loader versions found");
@@ -117,7 +120,8 @@ impl LoaderVersionsScreen {
             .iter()
             .map(|release| {
                 let selected = selection.is_some_and(|selection| {
-                    selection.game == self.game && selection.loader == release.loader_version
+                    selection.game == self.game
+                        && selection.loader.as_ref() == Some(&release.loader_version)
                 });
                 let label = if selected {
                     format!("✓ {}", release.loader_version)
@@ -127,8 +131,12 @@ impl LoaderVersionsScreen {
                 ListItem::new(label)
             })
             .collect::<Vec<ListItem>>();
-        let list =
-            List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+        let list = List::new(items).highlight_style(
+            Style::new()
+                .fg(theme.selection_fg)
+                .bg(theme.selection_bg)
+                .add_modifier(Modifier::BOLD),
+        );
 
         frame.render_stateful_widget(list, area, &mut self.loaders);
     }
@@ -143,13 +151,15 @@ impl LoaderVersionsScreen {
     }
 }
 
-pub(super) fn render_header(frame: &mut Frame, area: Rect, game: &MinecraftVersionId) {
+pub(super) fn render_header(
+    frame: &mut Frame,
+    area: Rect,
+    game: &MinecraftVersionId,
+    theme: Theme,
+) {
     let line = Line::from(vec![
-        Span::styled(
-            game.to_string(),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("  ›  loader versions", Style::default().fg(Color::DarkGray)),
+        Span::styled(game.to_string(), Style::new().add_modifier(Modifier::BOLD)),
+        Span::styled("  ›  loader versions", Style::new().fg(theme.text_dim)),
     ]);
 
     frame.render_widget(Paragraph::new(line), area);
