@@ -4,12 +4,12 @@ use std::{
 };
 
 use elemental::core::runtime::distribution::Distribution;
-use ratail::{KeyHint, Snapshot};
+use ratail::{KeyHint, SnapshotStatus};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
     style::Style,
-    text::Line,
+    text::{Line, Span},
 };
 
 use crate::app::{
@@ -23,6 +23,7 @@ use crate::widgets::{
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode},
     popup::{Popup, PopupEvent},
+    spinner,
 };
 
 use super::pane::{self, PaneAreas, PaneEvent, RowHint, SettingsPane};
@@ -51,7 +52,7 @@ impl SettingsPane for RuntimePane {
     }
 
     fn init(&mut self, ctx: &Services) {
-        if matches!(*ctx.runtimes().snapshot(), Snapshot::Idle) {
+        if ctx.runtimes().snapshot().view().status == SnapshotStatus::Idle {
             ctx.load_runtimes();
         }
     }
@@ -62,8 +63,8 @@ impl SettingsPane for RuntimePane {
 
         let snapshot = ctx.runtimes().snapshot();
         let runtimes = snapshot
-            .value()
-            .or_else(|| snapshot.previous())
+            .view()
+            .data
             .map(|runtimes| runtimes.as_slice())
             .unwrap_or(&[]);
         let java = choice_label(&current_choice(&config), runtimes);
@@ -202,19 +203,29 @@ impl SettingsPane for RuntimePane {
             return Some(Line::styled(error.clone(), Style::new().fg(theme.danger)));
         }
 
-        match &*ctx.runtimes().snapshot() {
-            Snapshot::Loading { .. } => Some(Line::styled(
-                t!("settings.runtime_loading"),
-                Style::new().fg(theme.text_dim),
-            )),
-            Snapshot::Error { error, .. } => Some(Line::styled(
+        let snapshot = ctx.runtimes().snapshot();
+        let view = snapshot.view();
+        if view.status == SnapshotStatus::Loading {
+            ctx.request_frame(spinner::INTERVAL);
+            return Some(Line::from(vec![
+                Span::raw(spinner::frame()),
+                Span::styled(
+                    format!(" {}", t!("settings.runtime_loading")),
+                    Style::new().fg(theme.text_dim),
+                ),
+            ]));
+        }
+        if let Some(error) = view.error {
+            return Some(Line::styled(
                 t!(
                     "settings.runtime_detect_failed",
                     error = format!("{error:#}")
                 ),
                 Style::new().fg(theme.danger),
-            )),
-            Snapshot::Ready(runtimes) => match current_choice(&ctx.config()) {
+            ));
+        }
+        match view.data {
+            Some(runtimes) => match current_choice(&ctx.config()) {
                 RuntimeChoice::Path(path)
                     if runtimes.iter().any(|runtime| runtime.path() == path) =>
                 {
@@ -239,7 +250,7 @@ impl SettingsPane for RuntimePane {
                 )),
                 _ => None,
             },
-            _ => None,
+            None => None,
         }
     }
 }
@@ -264,8 +275,8 @@ impl RuntimePane {
 
         let snapshot = ctx.runtimes().snapshot();
         let runtimes = snapshot
-            .value()
-            .or_else(|| snapshot.previous())
+            .view()
+            .data
             .map(|runtimes| runtimes.as_slice())
             .unwrap_or(&[]);
         let config = ctx.config();
@@ -280,8 +291,8 @@ impl RuntimePane {
     fn open_runtime_dropdown(&mut self, ctx: &Services) {
         let snapshot = ctx.runtimes().snapshot();
         let runtimes = snapshot
-            .value()
-            .or_else(|| snapshot.previous())
+            .view()
+            .data
             .map(|runtimes| runtimes.as_slice())
             .unwrap_or(&[]);
         let config = ctx.config();

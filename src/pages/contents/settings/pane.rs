@@ -114,12 +114,7 @@ pub(super) fn render_rows(
         .into_iter()
         .map(ListItem::new)
         .collect::<Vec<ListItem>>();
-    let list = List::new(items).highlight_style(
-        Style::new()
-            .fg(theme.selection_fg)
-            .bg(theme.selection_bg)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items).highlight_style(theme.selection_style());
     let mut state = ListState::default().with_selected(Some(selected));
     frame.render_stateful_widget(list, area, &mut state);
 }

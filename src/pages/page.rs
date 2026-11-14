@@ -27,24 +27,22 @@ fn sidebar_hints() -> Vec<KeyHint> {
 }
 
 pub struct ShellPage<C> {
-    route: Route,
     focus: Focus,
     content: C,
 }
 
 impl<C> ShellPage<C> {
-    pub fn new(route: Route, content: C) -> Self {
+    pub fn new(content: C) -> Self {
         Self {
-            route,
             focus: Focus::Sidebar,
             content,
         }
     }
 
-    fn on_sidebar_key(&mut self, key: KeyEvent) -> PageEvent<Route> {
+    fn on_sidebar_key(&mut self, route: &Route, key: KeyEvent) -> PageEvent<Route> {
         match key.code {
-            KeyCode::Down => self.navigate_to(self.route.next()),
-            KeyCode::Up => self.navigate_to(self.route.previous()),
+            KeyCode::Down => self.navigate_to(route, route.next()),
+            KeyCode::Up => self.navigate_to(route, route.previous()),
             KeyCode::Enter => {
                 self.focus = Focus::Content;
                 PageEvent::Handled
@@ -53,34 +51,34 @@ impl<C> ShellPage<C> {
         }
     }
 
-    fn navigate_to(&self, route: Route) -> PageEvent<Route> {
-        if route == self.route {
+    fn navigate_to(&self, current: &Route, target: Route) -> PageEvent<Route> {
+        if target == *current {
             PageEvent::Handled
         } else {
-            PageEvent::Navigate(NavAction::Replace(route))
+            PageEvent::Navigate(NavAction::Replace(target))
         }
     }
 }
 
 impl<C: Content + 'static> Page<Services> for ShellPage<C> {
-    fn init(&mut self, ctx: &Services) {
+    fn init(&mut self, ctx: &Services, _route: &Route) {
         self.content.init(ctx);
     }
 
-    fn keybindings(&self) -> Vec<KeyHint> {
+    fn keybindings(&self, _route: &Route) -> Vec<KeyHint> {
         match self.focus {
             Focus::Sidebar => sidebar_hints(),
             Focus::Content => self.content.keybindings(),
         }
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PageEvent<Route> {
+    fn on_key(&mut self, ctx: &Services, route: &Route, key: KeyEvent) -> PageEvent<Route> {
         if key.kind == KeyEventKind::Release {
             return PageEvent::Ignored;
         }
 
         match self.focus {
-            Focus::Sidebar => self.on_sidebar_key(key),
+            Focus::Sidebar => self.on_sidebar_key(route, key),
             Focus::Content => match self.content.on_key(ctx, key) {
                 ContentEvent::Handled => PageEvent::Handled,
                 ContentEvent::Navigate(route) => PageEvent::Navigate(NavAction::Replace(route)),
@@ -93,7 +91,7 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
         }
     }
 
-    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+    fn render(&mut self, ctx: &Services, route: &Route, frame: &mut Frame, area: Rect) {
         let theme = ctx.theme();
         let [sidebar_area, _gutter, content_area] = Layout::horizontal([
             Constraint::Length(sidebar_width()),
@@ -110,7 +108,7 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
         frame.render_widget(
             Sidebar::new(
                 sidebar_items,
-                self.route.index(),
+                route.index(),
                 self.focus == Focus::Sidebar,
                 theme,
             ),

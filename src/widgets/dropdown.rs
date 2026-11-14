@@ -3,7 +3,7 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     widgets::{Block, BorderType, Borders, Clear, List, ListState},
 };
 use unicode_width::UnicodeWidthStr;
@@ -106,12 +106,7 @@ impl<T> Popup for Dropdown<T> {
 
         let list = List::new(self.options.iter().map(|(label, _)| label.as_str()))
             .style(Style::new().fg(theme.text))
-            .highlight_style(
-                Style::new()
-                    .fg(theme.selection_fg)
-                    .bg(theme.selection_bg)
-                    .add_modifier(Modifier::BOLD),
-            )
+            .highlight_style(theme.selection_style())
             .highlight_symbol(HIGHLIGHT_SYMBOL);
 
         let visible = inner.height as usize;

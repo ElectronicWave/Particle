@@ -1,4 +1,4 @@
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
@@ -36,6 +36,13 @@ impl Theme {
             selection_bg: Color::LightGreen,
             selection_fg: Color::Black,
         }
+    }
+
+    pub fn selection_style(self) -> Style {
+        Style::new()
+            .fg(self.selection_fg)
+            .bg(self.selection_bg)
+            .add_modifier(Modifier::BOLD)
     }
 }
 

@@ -145,8 +145,8 @@ fn build_locales(translations: BTreeMap<String, BTreeMap<String, String>>) -> Ve
 fn builtin_translations() -> Result<BTreeMap<String, BTreeMap<String, String>>> {
     let mut translations = BTreeMap::new();
     for (locale, source) in [
-        ("en-US", include_str!("../../locales/en-US.toml")),
-        ("zh-CN", include_str!("../../locales/zh-CN.toml")),
+        ("en-US", include_str!("../locales/en-US.toml")),
+        ("zh-CN", include_str!("../locales/zh-CN.toml")),
     ] {
         translations.insert(locale.to_owned(), parse_locale(source, locale)?);
     }

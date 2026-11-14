@@ -2337,7 +2337,7 @@ dependencies = [
 [[package]]
 name = "ratail"
 version = "0.1.0"
-source = "git+https://github.com/ElectronicWave/ratail#90dca0006634f3c345845075c6a5d71e7b6cf7e1"
+source = "git+https://github.com/ElectronicWave/ratail#528ce8d1e2100d6838f6f984130dee9c8cb073a7"
 dependencies = [
  "arc-swap",
  "crossterm",

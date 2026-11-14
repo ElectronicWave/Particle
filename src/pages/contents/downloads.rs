@@ -12,9 +12,8 @@ use ratatui::{
     widgets::{Gauge, Paragraph, Wrap},
 };
 
-use crate::app::services::Services;
+use crate::app::services::{InstallPhase, InstallState, Services};
 use crate::pages::content::{Content, ContentEvent};
-use crate::states::{InstallPhase, InstallState};
 use crate::theme::Theme;
 
 fn download_hints() -> Vec<KeyHint> {

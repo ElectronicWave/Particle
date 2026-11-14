@@ -3,14 +3,13 @@ use ratatui::{
     Frame,
     crossterm::event::KeyEvent,
     layout::Rect,
-    style::{Modifier, Style},
     text::Line,
-    widgets::{Paragraph, Widget, Wrap},
+    widgets::{Paragraph, Widget},
 };
 
 use crate::app::services::Services;
 use crate::pages::route::Route;
-use crate::theme::Theme;
+use crate::widgets::spinner;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ContentEvent {
@@ -33,28 +32,14 @@ pub trait Content {
     }
 }
 
-pub fn render_placeholder(
-    frame: &mut Frame,
-    area: Rect,
-    theme: Theme,
-    title: &str,
-    description: &str,
-) {
-    let lines = vec![
-        Line::styled(
-            title,
-            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-        ),
-        Line::raw(""),
-        Line::styled(description, Style::new().fg(theme.text_muted)),
-    ];
-
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
-}
-
 pub fn render_message(frame: &mut Frame, area: Rect, message: &str) {
     Paragraph::new(message)
         .centered()
         .render(area, frame.buffer_mut());
+}
+
+pub fn render_loading(ctx: &Services, frame: &mut Frame, area: Rect, message: &str) {
+    ctx.request_frame(spinner::INTERVAL);
+    let line = Line::raw(format!("{} {message}", spinner::frame()));
+    frame.render_widget(Paragraph::new(line).centered(), area);
 }

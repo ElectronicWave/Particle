@@ -1,7 +1,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     widgets::{
         Block, BorderType, Borders, HighlightSpacing, List, ListState, Padding, StatefulWidget,
         Widget,
@@ -36,10 +36,7 @@ impl Widget for Sidebar {
             Style::new().fg(self.theme.border)
         };
         let highlight_style = if self.focused {
-            Style::new()
-                .fg(self.theme.selection_fg)
-                .bg(self.theme.selection_bg)
-                .add_modifier(Modifier::BOLD)
+            self.theme.selection_style()
         } else {
             Style::new().fg(self.theme.accent)
         };

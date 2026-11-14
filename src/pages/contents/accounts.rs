@@ -1,6 +1,6 @@
 use crate::t;
 use elemental::core::auth::accounts::AccountId;
-use ratail::{KeyHint, Snapshot};
+use ratail::{KeyHint, SnapshotStatus};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -10,10 +10,10 @@ use ratatui::{
     widgets::{List, ListItem, ListState, Paragraph},
 };
 
-use crate::app::services::Services;
-use crate::pages::content::{Content, ContentEvent, render_message};
-use crate::states::AccountState;
+use crate::app::services::{AccountState, Services};
+use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
 use crate::theme::Theme;
+use crate::widgets::text_edit::{EditEvent, TextEdit};
 
 fn list_hints() -> Vec<KeyHint> {
     vec![
@@ -36,7 +36,7 @@ fn add_hints() -> Vec<KeyHint> {
 #[derive(Debug)]
 enum Mode {
     List,
-    Add(String),
+    Add(TextEdit),
 }
 
 #[derive(Debug)]
@@ -65,48 +65,49 @@ impl Content for AccountsContent {
             Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
 
         let snapshot = ctx.account_state().snapshot();
-        match &*snapshot {
-            Snapshot::Idle => render_message(frame, list_area, t!("accounts.loading").as_ref()),
-            Snapshot::Loading { previous } => match previous {
-                Some(state) => self.render_accounts(state, frame, list_area, theme),
-                None => render_message(frame, list_area, t!("accounts.loading").as_ref()),
-            },
-            Snapshot::Ready(state) => self.render_accounts(state, frame, list_area, theme),
-            Snapshot::Error { error, previous } => match previous {
-                Some(state) => {
-                    let [error_area, accounts_area] =
-                        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)])
-                            .areas(list_area);
-                    render_message(
-                        frame,
-                        error_area,
-                        t!("common.error", error = error).as_ref(),
-                    );
-                    self.render_accounts(state, frame, accounts_area, theme);
-                }
-                None => {
-                    render_message(frame, list_area, t!("common.error", error = error).as_ref())
-                }
-            },
-            Snapshot::Cancelled { previous } => match previous {
-                Some(state) => self.render_accounts(state, frame, list_area, theme),
-                None => render_message(frame, list_area, t!("common.cancelled").as_ref()),
-            },
+        let view = snapshot.view();
+        match (view.data, view.error) {
+            (Some(state), Some(error)) => {
+                let [error_area, accounts_area] =
+                    Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(list_area);
+                render_message(
+                    frame,
+                    error_area,
+                    t!("common.error", error = error).as_ref(),
+                );
+                self.render_accounts(state, frame, accounts_area, theme);
+            }
+            (Some(state), None) => self.render_accounts(state, frame, list_area, theme),
+            (None, Some(error)) => {
+                render_message(frame, list_area, t!("common.error", error = error).as_ref())
+            }
+            (None, None) if view.status == SnapshotStatus::Cancelled => {
+                render_message(frame, list_area, t!("common.cancelled").as_ref())
+            }
+            (None, None) => render_loading(ctx, frame, list_area, t!("accounts.loading").as_ref()),
         }
 
         self.render_footer(frame, footer_area, theme);
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
-        let mut username = match &self.mode {
-            Mode::Add(username) => username.clone(),
+        let mut edit = match std::mem::replace(&mut self.mode, Mode::List) {
             Mode::List => return self.on_list_key(ctx, key),
+            Mode::Add(edit) => edit,
         };
-        let event = self.on_add_key(ctx, key, &mut username);
-        if matches!(self.mode, Mode::Add(_)) {
-            self.mode = Mode::Add(username);
+
+        match edit.handle_key(key) {
+            EditEvent::Submit => {
+                let name = edit.input().trim().to_owned();
+                if !name.is_empty() {
+                    ctx.sign_in_offline(name);
+                }
+            }
+            EditEvent::Changed => self.mode = Mode::Add(edit),
+            EditEvent::Unhandled => self.mode = Mode::Add(edit),
+            EditEvent::Cancel => {}
         }
-        event
+        ContentEvent::Handled
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
@@ -154,12 +155,7 @@ impl AccountsContent {
             })
             .collect::<Vec<ListItem>>();
 
-        let list = List::new(items).highlight_style(
-            Style::new()
-                .fg(theme.selection_fg)
-                .bg(theme.selection_bg)
-                .add_modifier(Modifier::BOLD),
-        );
+        let list = List::new(items).highlight_style(theme.selection_style());
         frame.render_stateful_widget(list, area, &mut self.list);
     }
 
@@ -169,10 +165,9 @@ impl AccountsContent {
                 t!("accounts.note"),
                 Style::new().fg(theme.text_dim),
             )),
-            Mode::Add(username) => Line::from(vec![
+            Mode::Add(edit) => Line::from(vec![
                 Span::styled(t!("accounts.username"), Style::new().fg(theme.accent)),
-                Span::raw(username.clone()),
-                Span::styled("_", Style::new().add_modifier(Modifier::BOLD)),
+                Span::raw(edit.cursor_display()),
             ]),
         };
 
@@ -197,7 +192,7 @@ impl AccountsContent {
                 None => ContentEvent::Handled,
             },
             KeyCode::Char('a') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.mode = Mode::Add(String::new());
+                self.mode = Mode::Add(TextEdit::new(String::new()));
                 ContentEvent::Handled
             }
             KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -214,39 +209,9 @@ impl AccountsContent {
         }
     }
 
-    fn on_add_key(&mut self, ctx: &Services, key: KeyEvent, username: &mut String) -> ContentEvent {
-        match key.code {
-            KeyCode::Esc => {
-                self.mode = Mode::List;
-                ContentEvent::Handled
-            }
-            KeyCode::Backspace => {
-                username.pop();
-                ContentEvent::Handled
-            }
-            KeyCode::Enter => {
-                let name = username.trim().to_owned();
-                if !name.is_empty() {
-                    ctx.sign_in_offline(name);
-                }
-                self.mode = Mode::List;
-                ContentEvent::Handled
-            }
-            KeyCode::Char(character)
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                username.push(character);
-                ContentEvent::Handled
-            }
-            _ => ContentEvent::Handled,
-        }
-    }
-
     fn selected_account(&self, ctx: &Services) -> Option<AccountId> {
         let snapshot = ctx.account_state().snapshot();
-        let state = snapshot.value().or_else(|| snapshot.previous())?;
+        let state = snapshot.view().data?;
         let selected = self.list.selected()?;
         state.accounts.get(selected).map(|account| account.id)
     }

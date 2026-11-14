@@ -4,18 +4,17 @@ use elemental::{
     driver::{catalog::GameVersion, driver::DriverDescriptor},
     launcher::DriverCatalog,
 };
-use ratail::Snapshot;
+use ratail::SnapshotStatus;
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
     widgets::{List, ListItem, ListState},
 };
 
 use super::{ScreenAction, filter::VersionFilter};
 use crate::app::services::Services;
-use crate::pages::content::render_message;
+use crate::pages::content::{render_loading, render_message};
 use crate::theme::Theme;
 
 #[derive(Debug)]
@@ -46,27 +45,20 @@ impl GameVersionsScreen {
     ) {
         let theme = ctx.theme();
         let snapshot = ctx.catalog(driver).snapshot();
-
-        match &*snapshot {
-            Snapshot::Idle => render_message(frame, area, &t!("common.loading")),
-            Snapshot::Loading { previous } => match previous {
-                Some(data) => self.render_versions(data, frame, area, filter, theme),
-                None => render_message(frame, area, &t!("common.loading")),
-            },
-            Snapshot::Ready(data) => self.render_versions(data, frame, area, filter, theme),
-            Snapshot::Error { error, previous } => match previous {
-                Some(data) => {
-                    let [error_area, list_area] =
-                        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-                    render_message(frame, error_area, &t!("common.error", error = error));
-                    self.render_versions(data, frame, list_area, filter, theme);
-                }
-                None => render_message(frame, area, &t!("common.error", error = error)),
-            },
-            Snapshot::Cancelled { previous } => match previous {
-                Some(data) => self.render_versions(data, frame, area, filter, theme),
-                None => render_message(frame, area, &t!("common.cancelled")),
-            },
+        let view = snapshot.view();
+        match (view.data, view.error) {
+            (Some(data), Some(error)) => {
+                let [error_area, list_area] =
+                    Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+                render_message(frame, error_area, &t!("common.error", error = error));
+                self.render_versions(data, frame, list_area, filter, theme);
+            }
+            (Some(data), None) => self.render_versions(data, frame, area, filter, theme),
+            (None, Some(error)) => render_message(frame, area, &t!("common.error", error = error)),
+            (None, None) if view.status == SnapshotStatus::Cancelled => {
+                render_message(frame, area, &t!("common.cancelled"))
+            }
+            (None, None) => render_loading(ctx, frame, area, &t!("common.loading")),
         }
     }
 
@@ -120,12 +112,7 @@ impl GameVersionsScreen {
             .iter()
             .map(|version| ListItem::new(version.id.to_string()))
             .collect::<Vec<ListItem>>();
-        let list = List::new(items).highlight_style(
-            Style::new()
-                .fg(theme.selection_fg)
-                .bg(theme.selection_bg)
-                .add_modifier(Modifier::BOLD),
-        );
+        let list = List::new(items).highlight_style(theme.selection_style());
 
         frame.render_stateful_widget(list, area, &mut self.versions);
     }
@@ -137,7 +124,7 @@ impl GameVersionsScreen {
         filter: VersionFilter,
     ) -> Option<MinecraftVersionId> {
         let snapshot = ctx.catalog(driver).snapshot();
-        let data = snapshot.value().or_else(|| snapshot.previous())?;
+        let data = snapshot.view().data?;
         let versions = data
             .iter()
             .filter(|version| filter.matches(version))

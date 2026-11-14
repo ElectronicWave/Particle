@@ -65,6 +65,8 @@ launched = "已启动 %{instance}，可执行文件：%{executable}"
 log = "日志：%{path}"
 failed = "启动失败：%{error}"
 cancelled = "启动已取消。"
+no_account = "未选择账户，请先到账户页面添加。"
+not_found = "找不到实例：%{instance}"
 
 [accounts]
 loading = "正在加载账户..."

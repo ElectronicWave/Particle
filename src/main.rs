@@ -1,7 +1,6 @@
 mod app;
 mod i18n;
 mod pages;
-mod states;
 mod theme;
 mod widgets;
 

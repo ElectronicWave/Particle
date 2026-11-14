@@ -90,7 +90,7 @@ fn label(key: &str) -> String {
 
 fn account_label(ctx: &Services) -> String {
     let snapshot = ctx.account_state().snapshot();
-    let Some(state) = snapshot.value().or_else(|| snapshot.previous()) else {
+    let Some(state) = snapshot.view().data else {
         return t!("common.loading").into_owned();
     };
     let Some(selected) = state.selected else {
@@ -107,8 +107,8 @@ fn account_label(ctx: &Services) -> String {
 fn instance_count(ctx: &Services) -> usize {
     let snapshot = ctx.instances().snapshot();
     snapshot
-        .value()
-        .or_else(|| snapshot.previous())
+        .view()
+        .data
         .map(|instances| instances.len())
         .unwrap_or(0)
 }

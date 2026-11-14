@@ -4,7 +4,7 @@ use elemental::{
     driver::{catalog::LoaderRelease, driver::DriverDescriptor, loader_version::LoaderVersionId},
     launcher::{DriverCatalog, error::Error as LauncherError},
 };
-use ratail::Snapshot;
+use ratail::SnapshotStatus;
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
@@ -16,7 +16,7 @@ use ratatui::{
 
 use super::ScreenAction;
 use crate::app::services::Services;
-use crate::pages::content::render_message;
+use crate::pages::content::{render_loading, render_message};
 use crate::theme::Theme;
 
 #[derive(Clone, Debug)]
@@ -53,27 +53,20 @@ impl LoaderVersionsScreen {
     ) {
         let theme = ctx.theme();
         let snapshot = ctx.loader_versions(driver, &self.game).snapshot();
-
-        match &*snapshot {
-            Snapshot::Idle => render_message(frame, area, &t!("common.loading")),
-            Snapshot::Loading { previous } => match previous {
-                Some(data) => self.render_list(data, frame, area, selection, theme),
-                None => render_message(frame, area, &t!("common.loading")),
-            },
-            Snapshot::Ready(data) => self.render_list(data, frame, area, selection, theme),
-            Snapshot::Error { error, previous } => match previous {
-                Some(data) => {
-                    let [error_area, list_area] =
-                        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-                    render_message(frame, error_area, &t!("common.error", error = error));
-                    self.render_list(data, frame, list_area, selection, theme);
-                }
-                None => render_message(frame, area, &loader_error_message(error)),
-            },
-            Snapshot::Cancelled { previous } => match previous {
-                Some(data) => self.render_list(data, frame, area, selection, theme),
-                None => render_message(frame, area, &t!("common.cancelled")),
-            },
+        let view = snapshot.view();
+        match (view.data, view.error) {
+            (Some(data), Some(error)) => {
+                let [error_area, list_area] =
+                    Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+                render_message(frame, error_area, &t!("common.error", error = error));
+                self.render_list(data, frame, list_area, selection, theme);
+            }
+            (Some(data), None) => self.render_list(data, frame, area, selection, theme),
+            (None, Some(error)) => render_message(frame, area, &loader_error_message(error)),
+            (None, None) if view.status == SnapshotStatus::Cancelled => {
+                render_message(frame, area, &t!("common.cancelled"))
+            }
+            (None, None) => render_loading(ctx, frame, area, &t!("common.loading")),
         }
     }
 
@@ -129,19 +122,14 @@ impl LoaderVersionsScreen {
                 ListItem::new(label)
             })
             .collect::<Vec<ListItem>>();
-        let list = List::new(items).highlight_style(
-            Style::new()
-                .fg(theme.selection_fg)
-                .bg(theme.selection_bg)
-                .add_modifier(Modifier::BOLD),
-        );
+        let list = List::new(items).highlight_style(theme.selection_style());
 
         frame.render_stateful_widget(list, area, &mut self.loaders);
     }
 
     fn selected_loader(&self, ctx: &Services, driver: DriverDescriptor) -> Option<LoaderVersionId> {
         let snapshot = ctx.loader_versions(driver, &self.game).snapshot();
-        let data = snapshot.value().or_else(|| snapshot.previous())?;
+        let data = snapshot.view().data?;
         let selected = self.loaders.selected()?;
 
         data.get(selected)

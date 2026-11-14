@@ -65,6 +65,8 @@ launched = "Launched %{instance} with %{executable}"
 log = "Log: %{path}"
 failed = "Launch failed: %{error}"
 cancelled = "Launch cancelled."
+no_account = "No account selected. Add one in Accounts."
+not_found = "Instance not found: %{instance}"
 
 [accounts]
 loading = "Loading accounts..."

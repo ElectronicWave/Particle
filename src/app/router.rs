@@ -17,19 +17,19 @@ pub struct AppRouter;
 impl Router<Services> for AppRouter {
     fn create(&mut self, route: &Route, _ctx: &Services) -> Box<dyn Page<Services>> {
         match route {
-            Route::Home => boxed(*route, HomeContent::default()),
-            Route::Instances => boxed(*route, InstancesContent::default()),
-            Route::Catalog => boxed(*route, CatalogContent::default()),
-            Route::Downloads => boxed(*route, DownloadsContent::default()),
-            Route::Accounts => boxed(*route, AccountsContent::default()),
-            Route::Settings => boxed(*route, SettingsContent::default()),
+            Route::Home => boxed(HomeContent::default()),
+            Route::Instances => boxed(InstancesContent::default()),
+            Route::Catalog => boxed(CatalogContent::default()),
+            Route::Downloads => boxed(DownloadsContent::default()),
+            Route::Accounts => boxed(AccountsContent::default()),
+            Route::Settings => boxed(SettingsContent::default()),
         }
     }
 }
 
-fn boxed<C>(route: Route, content: C) -> Box<dyn Page<Services>>
+fn boxed<C>(content: C) -> Box<dyn Page<Services>>
 where
     C: Content + 'static,
 {
-    Box::new(ShellPage::new(route, content))
+    Box::new(ShellPage::new(content))
 }

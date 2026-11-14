@@ -1,4 +1,11 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{Error, anyhow};
 use elemental::{
@@ -18,6 +25,7 @@ use elemental::{
         driver::DriverDescriptor,
         loader_version::LoaderVersionId,
     },
+    infra::downloader::DownloadProgress,
     launcher::{AccountStore, DriverCatalog, DriverSpec, Instance, LaunchOptions, Launcher},
     shared::scope::Scope,
 };
@@ -27,8 +35,58 @@ use crate::app::config::{ConfigStore, LauncherConfig, build_launcher, load_insta
 use crate::app::launch::{self, LaunchSession};
 use crate::pages::contents::catalog::{load_loader_versions, load_versions};
 use crate::pages::route::Route;
-use crate::states::{AccountState, AccountSummary, InstallPhase, InstallState, LaunchReport};
 use crate::theme::Theme;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountSummary {
+    pub id: AccountId,
+    pub name: String,
+    pub authorizer: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AccountState {
+    pub accounts: Vec<AccountSummary>,
+    pub selected: Option<AccountId>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InstallState {
+    pub instance_name: String,
+    pub phase: InstallPhase,
+    pub progress: DownloadProgress,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum InstallPhase {
+    #[default]
+    Idle,
+    Preparing,
+    Done,
+    Failed(String),
+}
+
+impl InstallPhase {
+    pub fn is_preparing(&self) -> bool {
+        matches!(self, Self::Preparing)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchReport {
+    pub instance_name: String,
+    pub executable: PathBuf,
+    pub pid: Option<u32>,
+    pub log_path: PathBuf,
+    pub started_at: SystemTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchOutcome {
+    Started(LaunchReport),
+    NoAccount,
+    InstanceNotFound(String),
+}
 
 pub struct Services {
     redraw: Redraw,
@@ -44,8 +102,9 @@ pub struct Services {
     account_state: Task<AccountState, Error>,
     instances: Task<Vec<Instance>, Error>,
     runtimes: Task<Vec<Distribution>, Error>,
-    launch: Task<LaunchReport, Error>,
+    launch: Task<LaunchOutcome, Error>,
     install: Arc<Mutex<InstallState>>,
+    animation_pending: Arc<AtomicBool>,
 }
 
 impl Services {
@@ -71,7 +130,23 @@ impl Services {
             runtimes: Task::with_redraw(&redraw),
             launch: Task::with_redraw(&redraw),
             install: Arc::new(Mutex::new(InstallState::default())),
+            animation_pending: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Requests one repaint after `delay`, coalescing overlapping animation frames.
+    pub fn request_frame(&self, delay: Duration) {
+        if self.animation_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let redraw = self.redraw.clone();
+        let pending = self.animation_pending.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            pending.store(false, Ordering::Release);
+            redraw.trigger();
+        });
     }
 
     pub fn config(&self) -> LauncherConfig {
@@ -233,19 +308,8 @@ impl Services {
         }
         self.redraw.trigger();
 
-        let (refresh_tx, refresh_rx) = tokio::sync::oneshot::channel();
         let instances = self.instances.clone();
         let refresh_launcher = self.launcher();
-        tokio::spawn(async move {
-            if refresh_rx.await.is_ok() {
-                let _ = instances.spawn_once(move || async move {
-                    refresh_launcher
-                        .inspect_instances()
-                        .await
-                        .map_err(Error::from)
-                });
-            }
-        });
 
         tokio::spawn(async move {
             let runtime = match runtime_options_for(&config, Some(&instance_name)).await {
@@ -294,7 +358,12 @@ impl Services {
                         state.phase = InstallPhase::Done;
                     }
                     redraw.trigger();
-                    let _ = refresh_tx.send(());
+                    let _ = instances.spawn_once(move || async move {
+                        refresh_launcher
+                            .inspect_instances()
+                            .await
+                            .map_err(Error::from)
+                    });
                 }
                 Err(error) => set_install_failed(&install, &redraw, format!("{error:#}")),
             }
@@ -303,7 +372,7 @@ impl Services {
         true
     }
 
-    pub fn launch_task(&self) -> Task<LaunchReport, Error> {
+    pub fn launch_task(&self) -> Task<LaunchOutcome, Error> {
         self.launch.clone()
     }
 
@@ -315,15 +384,13 @@ impl Services {
 
         self.launch.spawn_once(move || async move {
             let runtime = runtime_options_for(&config, Some(&instance_name)).await?;
-            let account = store
-                .selected()
-                .await?
-                .ok_or_else(|| anyhow!("select an account before launching"))?;
+            let Some(account) = store.selected().await? else {
+                return Ok(LaunchOutcome::NoAccount);
+            };
             let credential = account.credential().await?;
-            let instance = launcher
-                .inspect_instance(instance_name.clone())
-                .await?
-                .ok_or_else(|| anyhow!("instance not found: {instance_name}"))?;
+            let Some(instance) = launcher.inspect_instance(instance_name.clone()).await? else {
+                return Ok(LaunchOutcome::InstanceNotFound(instance_name));
+            };
             let prepared = launcher.load_instance(instance).await?;
             let command = launcher
                 .build_launch_command(&prepared, &credential, &runtime, &LaunchOptions::default())
@@ -340,7 +407,7 @@ impl Services {
             };
             launch::supervise(child, session, redraw);
 
-            Ok(report)
+            Ok(LaunchOutcome::Started(report))
         })
     }
 

@@ -11,7 +11,6 @@ use ratatui::{
 use crate::theme::Theme;
 
 pub(super) enum NameAction {
-    Ignored,
     Handled,
     Cancel,
     Submit(String),
