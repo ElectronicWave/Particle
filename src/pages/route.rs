@@ -1,3 +1,7 @@
+use std::borrow::Cow;
+
+use crate::t;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Route {
     Home,
@@ -33,14 +37,14 @@ impl Route {
         }
     }
 
-    pub const fn label(self) -> &'static str {
+    pub fn label(self) -> Cow<'static, str> {
         match self {
-            Self::Home => "Home",
-            Self::Instances => "Instances",
-            Self::Catalog => "Catalog",
-            Self::Downloads => "Downloads",
-            Self::Accounts => "Accounts",
-            Self::Settings => "Settings",
+            Self::Home => t!("nav.home"),
+            Self::Instances => t!("nav.instances"),
+            Self::Catalog => t!("nav.catalog"),
+            Self::Downloads => t!("nav.downloads"),
+            Self::Accounts => t!("nav.accounts"),
+            Self::Settings => t!("nav.settings"),
         }
     }
 

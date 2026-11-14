@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use crate::t;
 use ratail::{KeyHint, Snapshot};
 use ratatui::{
     Frame,
@@ -12,15 +11,16 @@ use ratatui::{
 
 use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent, render_message};
-use crate::states::LaunchReport;
 use crate::theme::Theme;
 
-const INSTANCE_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("↑/↓", "Browse"),
-    KeyHint::from_static("ENTER", "Launch"),
-    KeyHint::from_static("R", "Refresh"),
-    KeyHint::from_static("ESC", "Return"),
-];
+fn instance_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("↑/↓", t!("common.browse")),
+        KeyHint::new("ENTER", t!("common.launch")),
+        KeyHint::new("R", t!("common.refresh")),
+        KeyHint::new("ESC", t!("common.return")),
+    ]
+}
 
 #[derive(Debug, Default)]
 pub struct InstancesContent {
@@ -43,10 +43,10 @@ impl Content for InstancesContent {
 
         let snapshot = ctx.instances().snapshot();
         match &*snapshot {
-            Snapshot::Idle => render_message(frame, body_area, "Loading instances..."),
+            Snapshot::Idle => render_message(frame, body_area, t!("instances.loading").as_ref()),
             Snapshot::Loading { previous } => match previous {
                 Some(instances) => self.render_instances(instances, frame, body_area, theme),
-                None => render_message(frame, body_area, "Loading instances..."),
+                None => render_message(frame, body_area, t!("instances.loading").as_ref()),
             },
             Snapshot::Ready(instances) => self.render_instances(instances, frame, body_area, theme),
             Snapshot::Error { error, previous } => match previous {
@@ -54,14 +54,20 @@ impl Content for InstancesContent {
                     let [error_area, list_area] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)])
                             .areas(body_area);
-                    render_message(frame, error_area, &format!("Error: {error}"));
+                    render_message(
+                        frame,
+                        error_area,
+                        t!("common.error", error = error).as_ref(),
+                    );
                     self.render_instances(instances, frame, list_area, theme);
                 }
-                None => render_message(frame, body_area, &format!("Error: {error}")),
+                None => {
+                    render_message(frame, body_area, t!("common.error", error = error).as_ref())
+                }
             },
             Snapshot::Cancelled { previous } => match previous {
                 Some(instances) => self.render_instances(instances, frame, body_area, theme),
-                None => render_message(frame, body_area, "Cancelled"),
+                None => render_message(frame, body_area, t!("common.cancelled").as_ref()),
             },
         }
 
@@ -93,7 +99,7 @@ impl Content for InstancesContent {
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
-        INSTANCE_HINTS.to_vec()
+        instance_hints()
     }
 }
 
@@ -106,11 +112,7 @@ impl InstancesContent {
         theme: Theme,
     ) {
         if instances.is_empty() {
-            render_message(
-                frame,
-                area,
-                "No installed instances. Install one from the Catalog.",
-            );
+            render_message(frame, area, t!("instances.empty").as_ref());
             return;
         }
 
@@ -122,7 +124,7 @@ impl InstancesContent {
                     .game_version
                     .as_ref()
                     .map(|version| version.to_string())
-                    .unwrap_or_else(|| "unknown version".to_owned());
+                    .unwrap_or_else(|| t!("common.unknown_version").into_owned());
                 let line = Line::from(vec![
                     Span::styled(
                         instance.instance_name.clone(),
@@ -160,41 +162,43 @@ fn render_launch_status(ctx: &Services, frame: &mut Frame, area: Rect, theme: Th
     let snapshot = ctx.launch_task().snapshot();
     let lines = match &*snapshot {
         Snapshot::Idle => vec![Line::styled(
-            "Select an instance and press Enter to launch it.",
+            t!("instances.hint"),
             Style::new().fg(theme.text_dim),
         )],
         Snapshot::Loading { previous } => {
-            let suffix = previous
-                .as_ref()
-                .map(|report: &Arc<LaunchReport>| format!(" (last: {})", report.instance_name))
-                .unwrap_or_default();
-            vec![Line::styled(
-                format!("Launching...{suffix}"),
-                Style::new().fg(theme.accent),
-            )]
+            let line = match previous {
+                Some(report) => {
+                    t!(
+                        "instances.launching_last",
+                        instance = report.instance_name.as_str()
+                    )
+                }
+                None => t!("instances.launching"),
+            };
+            vec![Line::styled(line, Style::new().fg(theme.accent))]
         }
         Snapshot::Ready(report) => vec![
-            Line::from(vec![
-                Span::styled("Launched ", Style::new().fg(theme.success)),
-                Span::styled(
-                    &report.instance_name,
-                    Style::new().add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!(" with {}", report.executable.display()),
-                    Style::new().fg(theme.text_dim),
-                ),
-            ]),
             Line::styled(
-                format!("Log: {}", report.log_path.display()),
+                t!(
+                    "instances.launched",
+                    instance = report.instance_name.as_str(),
+                    executable = report.executable.display()
+                ),
+                Style::new().fg(theme.success),
+            ),
+            Line::styled(
+                t!("instances.log", path = report.log_path.display()),
                 Style::new().fg(theme.text_dim),
             ),
         ],
         Snapshot::Error { error, .. } => vec![Line::styled(
-            format!("Launch failed: {error}"),
+            t!("instances.failed", error = error),
             Style::new().fg(theme.danger),
         )],
-        Snapshot::Cancelled { .. } => vec![Line::raw("Launch cancelled.")],
+        Snapshot::Cancelled { .. } => vec![Line::styled(
+            t!("instances.cancelled"),
+            Style::new().fg(theme.text_dim),
+        )],
     };
 
     frame.render_widget(Paragraph::new(lines), area);

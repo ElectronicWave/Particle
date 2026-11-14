@@ -15,6 +15,8 @@ ratatui = "0.30.0"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1"
 tokio = { version = "1.52.1", features = ["macros", "process", "rt-multi-thread"] }
+sys-locale = "0.3.2"
+unicode-width = "0.2"
 
 [profile.release]
 codegen-units = 1           # reduces binary size by ~2%

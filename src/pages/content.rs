@@ -33,8 +33,6 @@ pub trait Content {
     }
 }
 
-pub const RETURN_HINTS: &[KeyHint] = &[KeyHint::from_static("ESC", "Return")];
-
 pub fn render_placeholder(
     frame: &mut Frame,
     area: Rect,

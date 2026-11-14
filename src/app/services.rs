@@ -8,7 +8,10 @@ use elemental::{
             authorizers::offline::OfflineAuthorizer,
         },
         minecraft::MinecraftVersionId,
-        runtime::{distribution::Distribution, providers::custom::new_custom_provider},
+        runtime::{
+            distribution::Distribution, provider::default_providers,
+            providers::custom::new_custom_provider,
+        },
     },
     driver::{
         catalog::{GameVersion, LoaderRelease},
@@ -40,14 +43,14 @@ pub struct Services {
     loader_versions: TaskCache<(&'static str, MinecraftVersionId), Vec<LoaderRelease>, Error>,
     account_state: Task<AccountState, Error>,
     instances: Task<Vec<Instance>, Error>,
+    runtimes: Task<Vec<Distribution>, Error>,
     launch: Task<LaunchReport, Error>,
     install: Arc<Mutex<InstallState>>,
 }
 
 impl Services {
-    pub async fn new() -> anyhow::Result<Self> {
+    pub async fn new(config_store: ConfigStore, config: LauncherConfig) -> anyhow::Result<Self> {
         let redraw = Redraw::new();
-        let (config_store, config) = crate::app::config::load().await?;
         let launcher = build_launcher(&config)?;
         let accounts = Arc::new(AccountStore::open(Scope::Config).await?);
         let drivers = DriverCatalog::supported_drivers().collect();
@@ -65,6 +68,7 @@ impl Services {
             loader_versions: TaskCache::new(&redraw),
             account_state: Task::with_redraw(&redraw),
             instances: Task::with_redraw(&redraw),
+            runtimes: Task::with_redraw(&redraw),
             launch: Task::with_redraw(&redraw),
             install: Arc::new(Mutex::new(InstallState::default())),
         })
@@ -165,6 +169,16 @@ impl Services {
         self.instances.spawn_once(move || async move {
             launcher.inspect_instances().await.map_err(Error::from)
         })
+    }
+
+    pub fn runtimes(&self) -> Task<Vec<Distribution>, Error> {
+        self.runtimes.clone()
+    }
+
+    pub fn load_runtimes(&self) -> bool {
+        let custom_paths = self.config().custom_runtime_paths;
+        self.runtimes
+            .spawn_once(move || async move { detect_runtimes(custom_paths).await })
     }
 
     pub fn install_state(&self) -> InstallState {
@@ -340,6 +354,9 @@ impl Services {
             *self.launcher.write().expect("launcher lock poisoned") = launcher;
         }
         *self.config.write().expect("config lock poisoned") = next.clone();
+        if providers_changed {
+            self.load_runtimes();
+        }
 
         let store = self.config_store.clone();
         let error = self.config_error.clone();
@@ -370,6 +387,9 @@ async fn runtime_options_for(
     instance_name: Option<&str>,
 ) -> Result<elemental::launcher::RuntimeOptions, Error> {
     let mut options = config.runtime_options();
+    if let Some(path) = &config.java_runtime_path {
+        options.runtime_override = Some(resolve_runtime(path.clone()).await?);
+    }
     let Some(instance_name) = instance_name else {
         return Ok(options);
     };
@@ -379,6 +399,9 @@ async fn runtime_options_for(
 
     if let Some(major) = instance.runtime.java_major_version {
         options.runtime_major_version = Some(major);
+        if instance.runtime.path.is_none() {
+            options.runtime_override = None;
+        }
     }
     if let Some(validation) = instance.runtime.validation {
         options.runtime_validation = validation.mode();
@@ -388,6 +411,19 @@ async fn runtime_options_for(
     }
 
     Ok(options)
+}
+
+async fn detect_runtimes(
+    custom_paths: Vec<std::path::PathBuf>,
+) -> Result<Vec<Distribution>, Error> {
+    let mut providers = default_providers();
+    if !custom_paths.is_empty() {
+        let custom = new_custom_provider(custom_paths)
+            .map_err(|error| anyhow!("invalid custom runtime path: {error}"))?;
+        providers.push(Arc::new(custom));
+    }
+
+    Ok(Distribution::from_providers::<Vec<_>>(providers).await)
 }
 
 async fn resolve_runtime(path: std::path::PathBuf) -> Result<Distribution, Error> {

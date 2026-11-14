@@ -1,3 +1,4 @@
+use crate::t;
 use elemental::{
     core::minecraft::{MinecraftVersion, MinecraftVersionId},
     driver::{catalog::GameVersion, driver::DriverDescriptor},
@@ -47,24 +48,24 @@ impl GameVersionsScreen {
         let snapshot = ctx.catalog(driver).snapshot();
 
         match &*snapshot {
-            Snapshot::Idle => render_message(frame, area, "Loading..."),
+            Snapshot::Idle => render_message(frame, area, &t!("common.loading")),
             Snapshot::Loading { previous } => match previous {
                 Some(data) => self.render_versions(data, frame, area, filter, theme),
-                None => render_message(frame, area, "Loading..."),
+                None => render_message(frame, area, &t!("common.loading")),
             },
             Snapshot::Ready(data) => self.render_versions(data, frame, area, filter, theme),
             Snapshot::Error { error, previous } => match previous {
                 Some(data) => {
                     let [error_area, list_area] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-                    render_message(frame, error_area, &format!("Error: {error}"));
+                    render_message(frame, error_area, &t!("common.error", error = error));
                     self.render_versions(data, frame, list_area, filter, theme);
                 }
-                None => render_message(frame, area, &format!("Error: {error}")),
+                None => render_message(frame, area, &t!("common.error", error = error)),
             },
             Snapshot::Cancelled { previous } => match previous {
                 Some(data) => self.render_versions(data, frame, area, filter, theme),
-                None => render_message(frame, area, "Cancelled"),
+                None => render_message(frame, area, &t!("common.cancelled")),
             },
         }
     }
@@ -108,10 +109,10 @@ impl GameVersionsScreen {
 
         if versions.is_empty() {
             let message = match filter {
-                VersionFilter::All => "No versions found",
-                _ => "No versions in this channel",
+                VersionFilter::All => t!("catalog.no_versions"),
+                _ => t!("catalog.no_channel_versions"),
             };
-            render_message(frame, area, message);
+            render_message(frame, area, &message);
             return;
         }
 

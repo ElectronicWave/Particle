@@ -5,6 +5,7 @@ use ratatui::{
     text::Span,
     widgets::{Tabs, Widget},
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::theme::Theme;
 
@@ -64,7 +65,14 @@ impl Widget for TabBar<'_> {
         let (start, end) = visible_range(self.labels, selected, area.width as usize);
         let titles = self.labels[start..end]
             .iter()
-            .map(|label| format!(" {label} "))
+            .enumerate()
+            .map(|(offset, label)| {
+                if offset == 0 {
+                    format!("{label} ")
+                } else {
+                    format!(" {label} ")
+                }
+            })
             .collect::<Vec<String>>();
 
         Tabs::new(titles)
@@ -80,7 +88,7 @@ impl Widget for TabBar<'_> {
 fn visible_range(labels: &[&str], selected: usize, width: usize) -> (usize, usize) {
     let widths = labels
         .iter()
-        .map(|label| label.chars().count() + PADDING_LEFT + PADDING_RIGHT)
+        .map(|label| UnicodeWidthStr::width(*label) + PADDING_LEFT + PADDING_RIGHT)
         .collect::<Vec<usize>>();
     let mut start = selected;
     let mut end = selected + 1;

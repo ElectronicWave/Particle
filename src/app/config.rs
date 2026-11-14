@@ -1,8 +1,10 @@
 use std::{
+    borrow::Cow,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use crate::t;
 use anyhow::{Context, Result, bail};
 use elemental::{
     core::runtime::{
@@ -27,10 +29,10 @@ pub enum RuntimeValidation {
 }
 
 impl RuntimeValidation {
-    pub const fn label(self) -> &'static str {
+    pub fn label(self) -> Cow<'static, str> {
         match self {
-            Self::Strict => "Strict",
-            Self::Disabled => "Disabled",
+            Self::Strict => t!("settings.runtime_strict"),
+            Self::Disabled => t!("settings.runtime_disabled"),
         }
     }
 
@@ -53,20 +55,22 @@ impl RuntimeValidation {
 #[serde(default)]
 pub struct LauncherConfig {
     pub storage_root: PathBuf,
-    pub java_major_version: Option<usize>,
+    pub java_runtime_path: Option<PathBuf>,
     pub runtime_validation: RuntimeValidation,
     pub download_parallelism: usize,
     pub custom_runtime_paths: Vec<PathBuf>,
+    pub language: Option<String>,
 }
 
 impl Default for LauncherConfig {
     fn default() -> Self {
         Self {
             storage_root: PathBuf::from(DEFAULT_STORAGE_ROOT),
-            java_major_version: None,
+            java_runtime_path: None,
             runtime_validation: RuntimeValidation::Strict,
             download_parallelism: 16,
             custom_runtime_paths: Vec::new(),
+            language: None,
         }
     }
 }
@@ -74,7 +78,7 @@ impl Default for LauncherConfig {
 impl LauncherConfig {
     pub fn runtime_options(&self) -> RuntimeOptions {
         RuntimeOptions {
-            runtime_major_version: self.java_major_version,
+            runtime_major_version: None,
             runtime_override: None,
             runtime_validation: self.runtime_validation.mode(),
         }

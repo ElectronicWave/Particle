@@ -1,3 +1,4 @@
+use crate::t;
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -36,9 +37,9 @@ impl InstanceNameScreen {
 
         frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled("Instance name", Style::new().fg(theme.accent)),
+                Span::styled(t!("catalog.instance_name"), Style::new().fg(theme.accent)),
                 Span::styled(
-                    "  stored as a directory under the storage root",
+                    format!("  {}", t!("catalog.instance_name_hint")),
                     Style::new().fg(theme.text_dim),
                 ),
             ])),
@@ -52,7 +53,7 @@ impl InstanceNameScreen {
             input_area,
         );
         frame.render_widget(
-            Paragraph::new("Enter starts installation, Esc goes back.")
+            Paragraph::new(t!("catalog.instance_name_help"))
                 .style(Style::new().fg(theme.text_dim))
                 .wrap(Wrap { trim: true }),
             help_area,

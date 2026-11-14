@@ -1,9 +1,11 @@
+use crate::t;
 use ratail::{KeyHint, NavAction, Page, PageEvent};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyEventKind},
     layout::{Constraint, Layout, Rect},
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
@@ -17,10 +19,12 @@ enum Focus {
     Content,
 }
 
-const SIDEBAR_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("↑/↓", "Browse"),
-    KeyHint::from_static("ENTER", "Focus"),
-];
+fn sidebar_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("↑/↓", t!("common.browse")),
+        KeyHint::new("ENTER", t!("common.focus")),
+    ]
+}
 
 pub struct ShellPage<C> {
     route: Route,
@@ -65,7 +69,7 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
 
     fn keybindings(&self) -> Vec<KeyHint> {
         match self.focus {
-            Focus::Sidebar => SIDEBAR_HINTS.to_vec(),
+            Focus::Sidebar => sidebar_hints(),
             Focus::Content => self.content.keybindings(),
         }
     }
@@ -120,7 +124,7 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
 fn sidebar_width() -> u16 {
     let longest = Route::all()
         .iter()
-        .map(|route| route.label().chars().count())
+        .map(|route| UnicodeWidthStr::width(route.label().as_ref()))
         .max()
         .unwrap_or_default() as u16;
 

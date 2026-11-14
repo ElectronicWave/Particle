@@ -1,3 +1,4 @@
+use crate::t;
 use ratail::KeyHint;
 use ratatui::{
     Frame,
@@ -7,14 +8,17 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
 
-const HOME_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("R", "Refresh"),
-    KeyHint::from_static("ESC", "Return"),
-];
+fn home_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("R", t!("common.refresh")),
+        KeyHint::new("ESC", t!("common.return")),
+    ]
+}
 
 #[derive(Debug, Default)]
 pub struct HomeContent;
@@ -33,40 +37,29 @@ impl Content for HomeContent {
 
         let lines = vec![
             Line::styled(
-                "Particle",
+                t!("app.name"),
                 Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
             ),
-            Line::styled(
-                "Minecraft launcher powered by Elemental",
-                Style::new().fg(theme.text_dim),
-            ),
+            Line::styled(t!("app.tagline"), Style::new().fg(theme.text_dim)),
             Line::raw(""),
             Line::from(vec![
-                Span::styled("Account      ", Style::new().fg(theme.text_dim)),
+                Span::styled(label("home.account"), Style::new().fg(theme.text_dim)),
                 Span::raw(account),
             ]),
             Line::from(vec![
-                Span::styled("Instances    ", Style::new().fg(theme.text_dim)),
-                Span::raw(format!("{instances} installed")),
+                Span::styled(label("home.instances"), Style::new().fg(theme.text_dim)),
+                Span::raw(t!("home.installed", count = instances)),
             ]),
             Line::from(vec![
-                Span::styled("Storage root ", Style::new().fg(theme.text_dim)),
+                Span::styled(label("home.storage_root"), Style::new().fg(theme.text_dim)),
                 Span::raw(config.storage_root.display().to_string()),
             ]),
             Line::from(vec![
-                Span::styled("Java         ", Style::new().fg(theme.text_dim)),
-                Span::raw(
-                    config
-                        .java_major_version
-                        .map(|major| format!("Java {major}"))
-                        .unwrap_or_else(|| "automatic".to_owned()),
-                ),
+                Span::styled(label("home.java"), Style::new().fg(theme.text_dim)),
+                Span::raw(java_label(&config)),
             ]),
             Line::raw(""),
-            Line::styled(
-                "Select an instance to launch, or open Catalog to install a new one.",
-                Style::new().fg(theme.text_dim),
-            ),
+            Line::styled(t!("home.description"), Style::new().fg(theme.text_dim)),
         ];
 
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
@@ -84,24 +77,31 @@ impl Content for HomeContent {
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
-        HOME_HINTS.to_vec()
+        home_hints()
     }
+}
+
+fn label(key: &str) -> String {
+    const WIDTH: usize = 13;
+    let text = t!(key);
+    let padding = WIDTH.saturating_sub(UnicodeWidthStr::width(text.as_ref()));
+    format!("{text}{}", " ".repeat(padding))
 }
 
 fn account_label(ctx: &Services) -> String {
     let snapshot = ctx.account_state().snapshot();
     let Some(state) = snapshot.value().or_else(|| snapshot.previous()) else {
-        return "loading...".to_owned();
+        return t!("common.loading").into_owned();
     };
     let Some(selected) = state.selected else {
-        return "no account selected".to_owned();
+        return t!("home.no_account").into_owned();
     };
     state
         .accounts
         .iter()
         .find(|account| account.id == selected)
         .map(|account| format!("{} ({})", account.name, account.authorizer))
-        .unwrap_or_else(|| "no account selected".to_owned())
+        .unwrap_or_else(|| t!("home.no_account").into_owned())
 }
 
 fn instance_count(ctx: &Services) -> usize {
@@ -111,4 +111,12 @@ fn instance_count(ctx: &Services) -> usize {
         .or_else(|| snapshot.previous())
         .map(|instances| instances.len())
         .unwrap_or(0)
+}
+
+fn java_label(config: &crate::app::config::LauncherConfig) -> String {
+    if let Some(path) = &config.java_runtime_path {
+        return path.display().to_string();
+    }
+
+    t!("common.automatic").into_owned()
 }

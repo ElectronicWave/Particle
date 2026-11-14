@@ -1,3 +1,4 @@
+use crate::t;
 use elemental::core::auth::accounts::AccountId;
 use ratail::{KeyHint, Snapshot};
 use ratatui::{
@@ -14,19 +15,23 @@ use crate::pages::content::{Content, ContentEvent, render_message};
 use crate::states::AccountState;
 use crate::theme::Theme;
 
-const LIST_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("↑/↓", "Browse"),
-    KeyHint::from_static("ENTER", "Select"),
-    KeyHint::from_static("A", "Add offline"),
-    KeyHint::from_static("D", "Remove"),
-    KeyHint::from_static("R", "Refresh"),
-    KeyHint::from_static("ESC", "Return"),
-];
+fn list_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("↑/↓", t!("common.browse")),
+        KeyHint::new("ENTER", t!("common.select")),
+        KeyHint::new("A", t!("common.add_offline")),
+        KeyHint::new("D", t!("common.remove")),
+        KeyHint::new("R", t!("common.refresh")),
+        KeyHint::new("ESC", t!("common.return")),
+    ]
+}
 
-const ADD_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("ENTER", "Sign in"),
-    KeyHint::from_static("ESC", "Cancel"),
-];
+fn add_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("ENTER", t!("common.sign_in")),
+        KeyHint::new("ESC", t!("common.cancel")),
+    ]
+}
 
 #[derive(Debug)]
 enum Mode {
@@ -61,10 +66,10 @@ impl Content for AccountsContent {
 
         let snapshot = ctx.account_state().snapshot();
         match &*snapshot {
-            Snapshot::Idle => render_message(frame, list_area, "Loading accounts..."),
+            Snapshot::Idle => render_message(frame, list_area, t!("accounts.loading").as_ref()),
             Snapshot::Loading { previous } => match previous {
                 Some(state) => self.render_accounts(state, frame, list_area, theme),
-                None => render_message(frame, list_area, "Loading accounts..."),
+                None => render_message(frame, list_area, t!("accounts.loading").as_ref()),
             },
             Snapshot::Ready(state) => self.render_accounts(state, frame, list_area, theme),
             Snapshot::Error { error, previous } => match previous {
@@ -72,14 +77,20 @@ impl Content for AccountsContent {
                     let [error_area, accounts_area] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)])
                             .areas(list_area);
-                    render_message(frame, error_area, &format!("Error: {error}"));
+                    render_message(
+                        frame,
+                        error_area,
+                        t!("common.error", error = error).as_ref(),
+                    );
                     self.render_accounts(state, frame, accounts_area, theme);
                 }
-                None => render_message(frame, list_area, &format!("Error: {error}")),
+                None => {
+                    render_message(frame, list_area, t!("common.error", error = error).as_ref())
+                }
             },
             Snapshot::Cancelled { previous } => match previous {
                 Some(state) => self.render_accounts(state, frame, list_area, theme),
-                None => render_message(frame, list_area, "Cancelled"),
+                None => render_message(frame, list_area, t!("common.cancelled").as_ref()),
             },
         }
 
@@ -100,8 +111,8 @@ impl Content for AccountsContent {
 
     fn keybindings(&self) -> Vec<KeyHint> {
         match self.mode {
-            Mode::List => LIST_HINTS.to_vec(),
-            Mode::Add(_) => ADD_HINTS.to_vec(),
+            Mode::List => list_hints(),
+            Mode::Add(_) => add_hints(),
         }
     }
 }
@@ -115,11 +126,7 @@ impl AccountsContent {
         theme: Theme,
     ) {
         if state.accounts.is_empty() {
-            render_message(
-                frame,
-                area,
-                "No accounts yet. Press A to add an offline account.",
-            );
+            render_message(frame, area, t!("accounts.empty").as_ref());
             return;
         }
 
@@ -159,11 +166,11 @@ impl AccountsContent {
     fn render_footer(&self, frame: &mut Frame, area: Rect, theme: Theme) {
         let line = match &self.mode {
             Mode::List => Line::from(Span::styled(
-                "Offline accounts store only a username and are intended for local testing.",
+                t!("accounts.note"),
                 Style::new().fg(theme.text_dim),
             )),
             Mode::Add(username) => Line::from(vec![
-                Span::styled("Username: ", Style::new().fg(theme.accent)),
+                Span::styled(t!("accounts.username"), Style::new().fg(theme.accent)),
                 Span::raw(username.clone()),
                 Span::styled("_", Style::new().add_modifier(Modifier::BOLD)),
             ]),

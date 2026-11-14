@@ -1,5 +1,6 @@
 use std::fmt::Write;
 
+use crate::t;
 use elemental::infra::downloader::DownloadProgress;
 use ratail::KeyHint;
 use ratatui::{
@@ -16,10 +17,12 @@ use crate::pages::content::{Content, ContentEvent};
 use crate::states::{InstallPhase, InstallState};
 use crate::theme::Theme;
 
-const DOWNLOAD_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("ENTER", "Dismiss"),
-    KeyHint::from_static("ESC", "Return"),
-];
+fn download_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("ENTER", t!("common.dismiss")),
+        KeyHint::new("ESC", t!("common.return")),
+    ]
+}
 
 #[derive(Debug, Default)]
 pub struct DownloadsContent;
@@ -32,7 +35,7 @@ impl Content for DownloadsContent {
 
         frame.render_widget(
             Paragraph::new(Line::styled(
-                "Downloads",
+                t!("downloads.title"),
                 Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
             )),
             title_area,
@@ -54,37 +57,30 @@ impl Content for DownloadsContent {
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
-        DOWNLOAD_HINTS.to_vec()
+        download_hints()
     }
 }
 
 fn render_state(frame: &mut Frame, area: Rect, state: &InstallState, theme: Theme) {
     match &state.phase {
         InstallPhase::Idle => {
-            render_message(
-                frame,
-                area,
-                "No downloads. Install an instance from the Catalog.",
-            );
+            render_message(frame, area, t!("downloads.empty").as_ref());
         }
         InstallPhase::Preparing => render_progress(frame, area, state, theme),
         InstallPhase::Done => {
             render_message(
                 frame,
                 area,
-                &format!(
-                    "Installed '{}'. Press Enter to dismiss, or install another version from the Catalog.",
-                    state.instance_name
-                ),
+                t!("downloads.done", instance = state.instance_name.as_str()).as_ref(),
             );
         }
         InstallPhase::Failed(error) => {
             let lines = vec![
-                Line::styled("Installation failed", Style::new().fg(theme.danger).bold()),
+                Line::styled(t!("downloads.failed"), Style::new().fg(theme.danger).bold()),
                 Line::raw(""),
                 Line::raw(error.clone()),
                 Line::raw(""),
-                Line::styled("Press Enter to dismiss.", Style::new().fg(theme.text_dim)),
+                Line::styled(t!("downloads.dismiss"), Style::new().fg(theme.text_dim)),
             ];
             frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
         }
@@ -102,7 +98,8 @@ fn render_progress(frame: &mut Frame, area: Rect, state: &InstallState, theme: T
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("Installing ", Style::new().fg(theme.accent)),
+            Span::styled(t!("downloads.installing"), Style::new().fg(theme.accent)),
+            Span::raw(" "),
             Span::styled(
                 &state.instance_name,
                 Style::new().add_modifier(Modifier::BOLD),
@@ -121,20 +118,26 @@ fn render_progress(frame: &mut Frame, area: Rect, state: &InstallState, theme: T
         gauge_area,
     );
 
-    let mut stats = format!(
-        "{} finished / {} tasks | {} ready | {} downloaded | {}/s",
-        progress.tasks_finished(),
-        progress.tasks_accepted,
-        format_bytes(progress.ready_bytes()),
-        format_bytes(progress.bytes_downloaded),
-        format_bytes_per_second(progress.bytes_per_second),
-    );
+    let mut stats = t!(
+        "downloads.stats",
+        finished = progress.tasks_finished(),
+        accepted = progress.tasks_accepted,
+        ready = format_bytes(progress.ready_bytes()),
+        downloaded = format_bytes(progress.bytes_downloaded),
+        speed = format_bytes_per_second(progress.bytes_per_second),
+    )
+    .into_owned();
     if let Some(eta) = progress.eta {
-        write!(stats, " | ETA {}", format_duration(eta)).expect("writing to a String cannot fail");
+        write!(stats, "{}", t!("downloads.eta", eta = format_duration(eta)))
+            .expect("writing to a String cannot fail");
     }
     if progress.tasks_failed > 0 {
-        write!(stats, " | {} failed", progress.tasks_failed)
-            .expect("writing to a String cannot fail");
+        write!(
+            stats,
+            "{}",
+            t!("downloads.failed_tasks", count = progress.tasks_failed)
+        )
+        .expect("writing to a String cannot fail");
     }
 
     frame.render_widget(Paragraph::new(stats), stats_area);
@@ -165,7 +168,7 @@ fn progress_ratio(progress: &DownloadProgress) -> f64 {
 
 fn active_tasks(progress: &DownloadProgress) -> String {
     if progress.active_tasks.is_empty() {
-        return "Waiting for the next download batch...".to_owned();
+        return t!("downloads.waiting").into_owned();
     }
 
     const VISIBLE: usize = 12;
@@ -179,14 +182,17 @@ fn active_tasks(progress: &DownloadProgress) -> String {
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| task.path.display().to_string());
-            let group = task.group.as_deref().unwrap_or("download");
+            let group = task
+                .group
+                .clone()
+                .unwrap_or_else(|| t!("downloads.group_download").into_owned());
             format!("{group}: {name}")
         })
         .collect::<Vec<String>>();
 
     let hidden = progress.active_tasks.len().saturating_sub(VISIBLE);
     if hidden > 0 {
-        lines.push(format!("... and {hidden} more"));
+        lines.push(t!("downloads.more", count = hidden).into_owned());
     }
 
     lines.join("\n")

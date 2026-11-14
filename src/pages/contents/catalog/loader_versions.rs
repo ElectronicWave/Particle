@@ -1,3 +1,4 @@
+use crate::t;
 use elemental::{
     core::minecraft::MinecraftVersionId,
     driver::{catalog::LoaderRelease, driver::DriverDescriptor, loader_version::LoaderVersionId},
@@ -54,24 +55,24 @@ impl LoaderVersionsScreen {
         let snapshot = ctx.loader_versions(driver, &self.game).snapshot();
 
         match &*snapshot {
-            Snapshot::Idle => render_message(frame, area, "Loading..."),
+            Snapshot::Idle => render_message(frame, area, &t!("common.loading")),
             Snapshot::Loading { previous } => match previous {
                 Some(data) => self.render_list(data, frame, area, selection, theme),
-                None => render_message(frame, area, "Loading..."),
+                None => render_message(frame, area, &t!("common.loading")),
             },
             Snapshot::Ready(data) => self.render_list(data, frame, area, selection, theme),
             Snapshot::Error { error, previous } => match previous {
                 Some(data) => {
                     let [error_area, list_area] =
                         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-                    render_message(frame, error_area, &format!("Error: {error}"));
+                    render_message(frame, error_area, &t!("common.error", error = error));
                     self.render_list(data, frame, list_area, selection, theme);
                 }
                 None => render_message(frame, area, &loader_error_message(error)),
             },
             Snapshot::Cancelled { previous } => match previous {
                 Some(data) => self.render_list(data, frame, area, selection, theme),
-                None => render_message(frame, area, "Cancelled"),
+                None => render_message(frame, area, &t!("common.cancelled")),
             },
         }
     }
@@ -112,7 +113,7 @@ impl LoaderVersionsScreen {
         theme: Theme,
     ) {
         if data.is_empty() {
-            render_message(frame, area, "No loader versions found");
+            render_message(frame, area, &t!("catalog.no_loader_versions"));
             return;
         }
 
@@ -123,11 +124,8 @@ impl LoaderVersionsScreen {
                     selection.game == self.game
                         && selection.loader.as_ref() == Some(&release.loader_version)
                 });
-                let label = if selected {
-                    format!("✓ {}", release.loader_version)
-                } else {
-                    release.loader_version.to_string()
-                };
+                let marker = if selected { "  ✓" } else { "" };
+                let label = format!("{}{marker}", release.loader_version);
                 ListItem::new(label)
             })
             .collect::<Vec<ListItem>>();
@@ -159,7 +157,10 @@ pub(super) fn render_header(
 ) {
     let line = Line::from(vec![
         Span::styled(game.to_string(), Style::new().add_modifier(Modifier::BOLD)),
-        Span::styled("  ›  loader versions", Style::new().fg(theme.text_dim)),
+        Span::styled(
+            format!("  ›  {}", t!("catalog.loader_versions")),
+            Style::new().fg(theme.text_dim),
+        ),
     ]);
 
     frame.render_widget(Paragraph::new(line), area);
@@ -170,9 +171,9 @@ fn loader_error_message(error: &anyhow::Error) -> String {
         error.downcast_ref::<LauncherError>(),
         Some(LauncherError::LoaderVersionsUnsupported { .. })
     ) {
-        "This driver does not use loader versions".to_owned()
+        t!("catalog.unsupported_loader").into_owned()
     } else {
-        format!("Error: {error}")
+        t!("common.error", error = error).into_owned()
     }
 }
 

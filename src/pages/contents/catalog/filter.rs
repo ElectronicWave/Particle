@@ -1,3 +1,6 @@
+use std::borrow::Cow;
+
+use crate::t;
 use elemental::{
     core::minecraft::{MinecraftVersion, MinecraftVersionId, MinecraftVersionKind, VersionStage},
     driver::catalog::GameVersion,
@@ -15,12 +18,12 @@ pub(super) enum VersionFilter {
 impl VersionFilter {
     pub(super) const ORDER: [Self; 4] = [Self::Release, Self::Snapshot, Self::Legacy, Self::All];
 
-    pub(super) fn label(self) -> &'static str {
+    pub(super) fn label(self) -> Cow<'static, str> {
         match self {
-            Self::Release => "Release",
-            Self::Snapshot => "Snapshot",
-            Self::Legacy => "Legacy",
-            Self::All => "All",
+            Self::Release => t!("catalog.filter.release"),
+            Self::Snapshot => t!("catalog.filter.snapshot"),
+            Self::Legacy => t!("catalog.filter.legacy"),
+            Self::All => t!("catalog.filter.all"),
         }
     }
 

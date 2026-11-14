@@ -6,6 +6,7 @@ mod loader_versions;
 pub use game_versions::load_versions;
 pub use loader_versions::load_loader_versions;
 
+use crate::t;
 use elemental::{
     core::minecraft::MinecraftVersionId,
     driver::{descriptors::VANILLA_DRIVER, driver::DriverDescriptor},
@@ -30,26 +31,33 @@ use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
 use crate::pages::route::Route;
 use crate::theme::Theme;
+use crate::widgets::cycle::Cycle;
 use crate::widgets::tabs::TabBar;
 
-const CATALOG_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("←/→", "Driver"),
-    KeyHint::from_static("Tab", "Filter"),
-    KeyHint::from_static("↑/↓", "Scroll"),
-    KeyHint::from_static("ENTER", "Select"),
-    KeyHint::from_static("ESC", "Return"),
-];
+fn catalog_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("←/→", t!("common.driver")),
+        KeyHint::new("Tab", t!("common.filter")),
+        KeyHint::new("↑/↓", t!("common.scroll")),
+        KeyHint::new("ENTER", t!("common.select")),
+        KeyHint::new("ESC", t!("common.return")),
+    ]
+}
 
-const LOADER_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("↑/↓", "Scroll"),
-    KeyHint::from_static("ENTER", "Select"),
-    KeyHint::from_static("ESC", "Versions"),
-];
+fn loader_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("↑/↓", t!("common.scroll")),
+        KeyHint::new("ENTER", t!("common.select")),
+        KeyHint::new("ESC", t!("common.versions")),
+    ]
+}
 
-const NAME_HINTS: &[KeyHint] = &[
-    KeyHint::from_static("ENTER", "Install"),
-    KeyHint::from_static("ESC", "Back"),
-];
+fn name_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("ENTER", t!("common.install")),
+        KeyHint::new("ESC", t!("common.back")),
+    ]
+}
 
 enum ScreenAction {
     Ignored,
@@ -116,7 +124,7 @@ impl Content for CatalogContent {
                         frame,
                         secondary_area,
                         &selection.game.to_string(),
-                        "instance name",
+                        &t!("catalog.instance_name_suffix"),
                         theme,
                     );
                 }
@@ -213,9 +221,9 @@ impl Content for CatalogContent {
 
     fn keybindings(&self) -> Vec<KeyHint> {
         match &self.screen {
-            Screen::GameVersions(_) => CATALOG_HINTS.to_vec(),
-            Screen::LoaderVersions(_) => LOADER_HINTS.to_vec(),
-            Screen::InstanceName(_) => NAME_HINTS.to_vec(),
+            Screen::GameVersions(_) => catalog_hints(),
+            Screen::LoaderVersions(_) => loader_hints(),
+            Screen::InstanceName(_) => name_hints(),
         }
     }
 }
@@ -233,17 +241,9 @@ impl CatalogContent {
     }
 
     fn cycle_filter(&mut self, forward: bool) {
-        let current = VersionFilter::ORDER
-            .iter()
-            .position(|filter| *filter == self.filter)
-            .unwrap_or(0);
-        let next = if forward {
-            (current + 1) % VersionFilter::ORDER.len()
-        } else {
-            (current + VersionFilter::ORDER.len() - 1) % VersionFilter::ORDER.len()
-        };
-
-        self.filter = VersionFilter::ORDER[next];
+        if let Some(filter) = Cycle::new(&VersionFilter::ORDER).step(&self.filter, forward) {
+            self.filter = *filter;
+        }
         if let Screen::GameVersions(screen) = &mut self.screen {
             screen.reset();
         }
@@ -301,12 +301,13 @@ fn render_driver_tabs(
 fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter, theme: Theme) {
     let titles = VersionFilter::ORDER
         .iter()
-        .map(|filter| filter.label())
-        .collect::<Vec<&str>>();
+        .map(|filter| filter.label().into_owned())
+        .collect::<Vec<String>>();
+    let labels = titles.iter().map(String::as_str).collect::<Vec<&str>>();
     let index = VersionFilter::ORDER
         .iter()
         .position(|filter| *filter == selected)
         .unwrap_or(0);
 
-    frame.render_widget(TabBar::new(theme, &titles, index).secondary(), area);
+    frame.render_widget(TabBar::new(theme, &labels, index).secondary(), area);
 }
