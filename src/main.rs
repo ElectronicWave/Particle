@@ -1,16 +1,40 @@
 mod app;
 mod i18n;
 mod pages;
+mod theme;
 mod widgets;
 
 use color_eyre::Result;
+use ratail::{App, AppFlow, KeyChord, KeyHint};
 
-use crate::app::tui::App;
+use crate::app::hints;
+use crate::app::router::AppRouter;
+use crate::app::services::Services;
+use crate::pages::route::Route;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
-    let mut app = App::new();
-    ratatui::run(|terminal| app.run(terminal))?;
+    let (config_store, config) = app::config::load()
+        .await
+        .map_err(|error| color_eyre::eyre::eyre!("{error:#}"))?;
+    i18n::init(config.language.as_deref()).map_err(|error| color_eyre::eyre::eyre!("{error:#}"))?;
+
+    let services = Services::new(config_store, config)
+        .await
+        .map_err(|error| color_eyre::eyre::eyre!("{error:#}"))?;
+    let mut app = App::new(services, AppRouter, Route::Home);
+    app.bind_global(
+        KeyChord::ctrl('q'),
+        KeyHint::new("Ctrl+Q", t!("common.quit")),
+        |_| AppFlow::Exit,
+    );
+    app.set_hint_renderer(hints::render);
+
+    let mut terminal = ratatui::init();
+    let result = app.run(&mut terminal).await;
+    ratatui::restore();
+    result?;
+
     Ok(())
 }
