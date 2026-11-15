@@ -11,7 +11,6 @@ use elemental::{
         RuntimeValidationMode, provider::default_providers, providers::custom::CustomProvider,
     },
     launcher::{Launcher, RuntimeOptions},
-    shared::scope::Scope,
 };
 use serde::{Deserialize, Serialize};
 
@@ -150,13 +149,7 @@ impl ConfigStore {
 
 pub async fn load() -> Result<(ConfigStore, LauncherConfig)> {
     let default_root = PathBuf::from(DEFAULT_STORAGE_ROOT);
-    let bootstrap = read_config(&default_root).await?;
-    let legacy = if bootstrap.is_none() {
-        read_legacy_config().await?
-    } else {
-        None
-    };
-    let seed = bootstrap.or(legacy).unwrap_or_default();
+    let seed = read_config(&default_root).await?.unwrap_or_default();
 
     let config = if seed.storage_root == default_root {
         seed
@@ -211,23 +204,6 @@ async fn read_config(storage_root: &Path) -> Result<Option<LauncherConfig>> {
     Ok(Some(config))
 }
 
-async fn read_legacy_config() -> Result<Option<LauncherConfig>> {
-    let Some(base) = Scope::Config.path() else {
-        return Ok(None);
-    };
-    let path = config_path(&base);
-    if !tokio::fs::try_exists(&path).await? {
-        return Ok(None);
-    }
-
-    let content = tokio::fs::read_to_string(&path)
-        .await
-        .with_context(|| format!("failed to read legacy config: {}", path.display()))?;
-    let profile: LegacyProfile = toml::from_str(&content)
-        .with_context(|| format!("failed to parse legacy config: {}", path.display()))?;
-    Ok(Some(profile.config))
-}
-
 async fn write_config(storage_root: &Path, config: &LauncherConfig) -> Result<()> {
     let path = config_path(storage_root);
     if let Some(parent) = path.parent() {
@@ -252,10 +228,4 @@ fn instance_root(storage_root: &Path, instance_name: &str) -> Result<PathBuf> {
     }
 
     Ok(storage_root.join("versions").join(instance_name))
-}
-
-#[derive(Debug, Deserialize)]
-struct LegacyProfile {
-    #[serde(default)]
-    config: LauncherConfig,
 }

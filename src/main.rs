@@ -1,4 +1,5 @@
 mod app;
+mod drivers;
 mod i18n;
 mod pages;
 mod services;

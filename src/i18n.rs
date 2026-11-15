@@ -61,6 +61,11 @@ pub fn translate(key: &str) -> std::borrow::Cow<'static, str> {
     catalog().lookup(key)
 }
 
+/// Returns the translation for `key`, or `None` when no locale defines it.
+pub fn try_translate(key: &str) -> Option<std::borrow::Cow<'static, str>> {
+    catalog().find(key).map(std::borrow::Cow::Borrowed)
+}
+
 pub fn available_locales() -> Vec<LocaleOption> {
     catalog()
         .locales
@@ -96,10 +101,10 @@ impl Catalog {
         &self.locales[self.current.load(Ordering::Relaxed)]
     }
 
-    fn lookup(&'static self, key: &str) -> std::borrow::Cow<'static, str> {
+    fn find(&'static self, key: &str) -> Option<&'static str> {
         let current = self.current();
         if let Some(value) = message(current, key) {
-            return std::borrow::Cow::Borrowed(value);
+            return Some(value);
         }
 
         let language = current.code.split('-').next().unwrap_or(&current.code);
@@ -112,10 +117,14 @@ impl Catalog {
                     .is_some_and(|candidate| candidate.eq_ignore_ascii_case(language))
         });
         if let Some(value) = matched.and_then(|locale| message(locale, key)) {
-            return std::borrow::Cow::Borrowed(value);
+            return Some(value);
         }
 
         message(&self.locales[self.default], key)
+    }
+
+    fn lookup(&'static self, key: &str) -> std::borrow::Cow<'static, str> {
+        self.find(key)
             .map(std::borrow::Cow::Borrowed)
             .unwrap_or_else(|| std::borrow::Cow::Owned(key.to_owned()))
     }

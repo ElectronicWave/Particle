@@ -8,8 +8,15 @@ use std::{
 
 use anyhow::{Context, Result};
 use elemental::launcher::LaunchCommand;
+use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use ratail::Redraw;
-use tokio::process::{Child, Command};
+
+#[cfg(windows)]
+use process_wrap::tokio::CreationFlags;
+#[cfg(unix)]
+use process_wrap::tokio::ProcessSession;
+#[cfg(windows)]
+use windows::Win32::System::Threading::DETACHED_PROCESS;
 
 const SESSION_HISTORY: usize = 10;
 const REDACTED: &str = "***";
@@ -46,7 +53,7 @@ impl LaunchSession {
         })
     }
 
-    pub fn spawn(&self, command: &LaunchCommand) -> Result<Child> {
+    pub fn spawn(&self, command: &LaunchCommand) -> Result<Box<dyn ChildWrapper>> {
         let stdout = OpenOptions::new()
             .append(true)
             .open(&self.log_path)
@@ -55,23 +62,31 @@ impl LaunchSession {
             .try_clone()
             .context("failed to clone launch log handle")?;
 
-        let mut process = Command::new(command.program());
-        process
-            .args(command.arguments())
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(stdout))
-            .stderr(Stdio::from(stderr))
-            .kill_on_drop(false);
+        let mut process = CommandWrap::with_new(command.program(), |process| {
+            process
+                .args(command.arguments())
+                .stdin(Stdio::null())
+                .stdout(Stdio::from(stdout))
+                .stderr(Stdio::from(stderr))
+                .kill_on_drop(false);
 
-        if let Some(cwd) = &command.cwd {
-            process.current_dir(cwd);
-        }
-        for (key, value) in &command.env {
-            process.env(key, value);
-        }
+            if let Some(cwd) = &command.cwd {
+                process.current_dir(cwd);
+            }
+            for (key, value) in &command.env {
+                process.env(key, value);
+            }
+        });
 
+        // Detach from the launcher's console so the game keeps running after
+        // the launcher exits.
         #[cfg(windows)]
-        process.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+        process.wrap(CreationFlags(DETACHED_PROCESS));
+
+        // Start a new session so the game is not tied to the launcher's
+        // controlling terminal and survives its exit.
+        #[cfg(unix)]
+        process.wrap(ProcessSession);
 
         process.spawn().with_context(|| {
             format!(
@@ -82,7 +97,7 @@ impl LaunchSession {
     }
 }
 
-pub fn supervise(mut child: Child, session: LaunchSession, redraw: Redraw) {
+pub fn supervise(mut child: Box<dyn ChildWrapper>, session: LaunchSession, redraw: Redraw) {
     tokio::spawn(async move {
         let status = child.wait().await;
         let _ = append_footer(&session.log_path, &status);
@@ -194,8 +209,3 @@ fn sanitize_component(value: &str) -> String {
         sanitized
     }
 }
-
-#[cfg(windows)]
-const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;

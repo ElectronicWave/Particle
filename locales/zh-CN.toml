@@ -98,6 +98,9 @@ instance_name_help = "Enter 开始安装，Esc 返回。"
 loader_versions = "加载器版本"
 instance_name_suffix = "实例名称"
 
+[catalog.driver]
+vanilla = "原版"
+
 [catalog.filter]
 release = "正式版"
 snapshot = "快照"

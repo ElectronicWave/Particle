@@ -24,6 +24,7 @@ use self::{
     instance_name::{InstanceNameScreen, NameAction},
     loader_versions::{LoaderSelection, LoaderVersionsScreen},
 };
+use crate::drivers as driver_display;
 use crate::pages::content::{Content, ContentEvent};
 use crate::pages::route::Route;
 use crate::services::Services;
@@ -296,9 +297,13 @@ fn render_driver_tabs(
 ) {
     let titles = drivers
         .iter()
-        .map(|driver| driver.name)
+        .map(|driver| driver_display::display_name(*driver))
+        .collect::<Vec<_>>();
+    let labels = titles
+        .iter()
+        .map(|title| title.as_ref())
         .collect::<Vec<&str>>();
-    frame.render_widget(TabBar::new(theme, &titles, selected), area);
+    frame.render_widget(TabBar::new(theme, &labels, selected), area);
 }
 
 fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter, theme: Theme) {

@@ -10,6 +10,7 @@ use ratatui::{
     widgets::{List, ListItem, ListState, Paragraph, Wrap},
 };
 
+use crate::drivers;
 use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
 use crate::services::{LaunchOutcome, Services};
 use crate::theme::Theme;
@@ -142,13 +143,14 @@ impl InstancesContent {
                     .as_ref()
                     .map(|version| version.to_string())
                     .unwrap_or_else(|| t!("common.unknown_version").into_owned());
+                let driver_name = drivers::display_name(instance.driver.driver);
                 let line = Line::from(vec![
                     Span::styled(
                         instance.instance_name.clone(),
                         Style::new().add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        format!("  {} {version}", instance.driver.driver.name),
+                        format!("  {driver_name} {version}"),
                         Style::new().fg(theme.text_dim),
                     ),
                 ]);
@@ -206,7 +208,7 @@ fn render_launch_status(ctx: &Services, frame: &mut Frame, area: Rect, theme: Th
     let view = snapshot.view();
     let lines = if let Some(error) = view.error {
         vec![Line::styled(
-            t!("instances.failed", error = error),
+            t!("instances.failed", error = format!("{error:#}")),
             Style::new().fg(theme.danger),
         )]
     } else if view.status == SnapshotStatus::Loading {
