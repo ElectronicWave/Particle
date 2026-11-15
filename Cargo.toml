@@ -10,7 +10,6 @@ elemental = { git = "https://github.com/ElectronicWave/Elemental", branch = "mai
     "yggdrasil-auth",
 ] }
 anyhow = "1.0.102"
-color-eyre = "0.6.5"
 ratail = { git = "https://github.com/ElectronicWave/ratail" }
 ratatui = "0.30.0"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -6,7 +6,7 @@ mod services;
 mod theme;
 mod widgets;
 
-use color_eyre::Result;
+use anyhow::Result;
 use ratail::{App, AppFlow, KeyChord, KeyHint};
 
 use crate::app::hints;
@@ -16,15 +16,10 @@ use crate::services::Services;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    color_eyre::install()?;
-    let (config_store, config) = app::config::load()
-        .await
-        .map_err(|error| color_eyre::eyre::eyre!("{error:#}"))?;
-    i18n::init(config.language.as_deref()).map_err(|error| color_eyre::eyre::eyre!("{error:#}"))?;
+    let (config_store, config) = app::config::load().await?;
+    i18n::init(config.language.as_deref())?;
 
-    let services = Services::new(config_store, config)
-        .await
-        .map_err(|error| color_eyre::eyre::eyre!("{error:#}"))?;
+    let services = Services::new(config_store, config).await?;
     let mut app = App::new(services, AppRouter, Route::Home);
     app.bind_global(
         KeyChord::ctrl('q'),
