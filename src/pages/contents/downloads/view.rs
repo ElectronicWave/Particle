@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{List, ListItem, ListState, Paragraph, Wrap},
 };
 
 pub(super) fn render(
@@ -56,9 +56,9 @@ fn render_sessions(
         .unwrap_or(0);
 
     if area.width >= 72 {
-        let [list_area, divider_area, detail_area] = Layout::horizontal([
+        let [list_area, _gap, detail_area] = Layout::horizontal([
             Constraint::Length(26),
-            Constraint::Length(1),
+            Constraint::Length(2),
             Constraint::Fill(1),
         ])
         .areas(area);
@@ -70,11 +70,10 @@ fn render_sessions(
             theme,
             &mut content.list,
         );
-        render_vertical_divider(frame, divider_area, theme);
         detail::render(&sessions[selected], frame, detail_area, theme);
     } else {
         let list_height = sessions.len().clamp(1, 6) as u16;
-        let [list_area, divider_area, detail_area] = Layout::vertical([
+        let [list_area, _gap, detail_area] = Layout::vertical([
             Constraint::Length(list_height),
             Constraint::Length(1),
             Constraint::Fill(1),
@@ -88,27 +87,8 @@ fn render_sessions(
             theme,
             &mut content.list,
         );
-        render_horizontal_divider(frame, divider_area, theme);
         detail::render(&sessions[selected], frame, detail_area, theme);
     }
-}
-
-fn render_vertical_divider(frame: &mut Frame, area: Rect, theme: Theme) {
-    frame.render_widget(
-        Block::default()
-            .borders(Borders::LEFT)
-            .border_style(Style::new().fg(theme.border)),
-        area,
-    );
-}
-
-fn render_horizontal_divider(frame: &mut Frame, area: Rect, theme: Theme) {
-    frame.render_widget(
-        Block::default()
-            .borders(Borders::TOP)
-            .border_style(Style::new().fg(theme.border)),
-        area,
-    );
 }
 
 fn render_session_list(
