@@ -12,10 +12,8 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::app::{
-    config::{LauncherConfig, validate_custom_runtime},
-    services::Services,
-};
+use crate::app::config::{LauncherConfig, validate_custom_runtime};
+use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
 use crate::widgets::{
@@ -53,12 +51,12 @@ impl SettingsPane for RuntimePane {
 
     fn init(&mut self, ctx: &Services) {
         if ctx.runtimes().snapshot().view().status == SnapshotStatus::Idle {
-            ctx.load_runtimes();
+            ctx.runtimes().load();
         }
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, areas: PaneAreas, theme: Theme) {
-        let config = ctx.config();
+        let config = ctx.config().snapshot();
         self.custom_runtime_paths = config.custom_runtime_paths.clone();
 
         let snapshot = ctx.runtimes().snapshot();
@@ -165,7 +163,7 @@ impl SettingsPane for RuntimePane {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                ctx.load_runtimes();
+                ctx.runtimes().load();
                 PaneEvent::Handled
             }
             _ => PaneEvent::Ignored,
@@ -206,7 +204,7 @@ impl SettingsPane for RuntimePane {
         let snapshot = ctx.runtimes().snapshot();
         let view = snapshot.view();
         if view.status == SnapshotStatus::Loading {
-            ctx.request_frame(spinner::INTERVAL);
+            ctx.ui().request_frame(spinner::INTERVAL);
             return Some(Line::from(vec![
                 Span::raw(spinner::frame()),
                 Span::styled(
@@ -225,7 +223,7 @@ impl SettingsPane for RuntimePane {
             ));
         }
         match view.data {
-            Some(runtimes) => match current_choice(&ctx.config()) {
+            Some(runtimes) => match current_choice(&ctx.config().snapshot()) {
                 RuntimeChoice::Path(path)
                     if runtimes.iter().any(|runtime| runtime.path() == path) =>
                 {
@@ -260,7 +258,7 @@ impl RuntimePane {
         match self.selected {
             0 => self.open_runtime_dropdown(ctx),
             1 => {
-                let mut config = ctx.config();
+                let mut config = ctx.config().snapshot();
                 config.runtime_validation = config.runtime_validation.toggled();
                 self.apply(ctx, config);
             }
@@ -279,7 +277,7 @@ impl RuntimePane {
             .data
             .map(|runtimes| runtimes.as_slice())
             .unwrap_or(&[]);
-        let config = ctx.config();
+        let config = ctx.config().snapshot();
         let current = current_choice(&config);
         let choices = runtime_cycle_choices(&config, &current, runtimes);
         let Some(choice) = Cycle::new(&choices).step(&current, forward).cloned() else {
@@ -295,7 +293,7 @@ impl RuntimePane {
             .data
             .map(|runtimes| runtimes.as_slice())
             .unwrap_or(&[]);
-        let config = ctx.config();
+        let config = ctx.config().snapshot();
         let current = current_choice(&config);
         let mut choices = runtime_cycle_choices(&config, &current, runtimes);
         choices.push(RuntimeChoice::Add);
@@ -318,18 +316,18 @@ impl RuntimePane {
     fn select_runtime(&mut self, ctx: &Services, choice: RuntimeChoice) {
         match choice {
             RuntimeChoice::Auto => {
-                let mut config = ctx.config();
+                let mut config = ctx.config().snapshot();
                 config.java_runtime_path = None;
                 self.runtime_dropdown = None;
                 self.apply(ctx, config);
             }
             RuntimeChoice::Path(path) => {
-                let mut config = ctx.config();
+                let mut config = ctx.config().snapshot();
                 config.java_runtime_path = Some(path);
                 self.runtime_dropdown = None;
                 self.apply(ctx, config);
             }
-            RuntimeChoice::Add => self.open_picker(&ctx.config()),
+            RuntimeChoice::Add => self.open_picker(&ctx.config().snapshot()),
         }
     }
 
@@ -351,7 +349,7 @@ impl RuntimePane {
             }
         };
 
-        let mut config = ctx.config();
+        let mut config = ctx.config().snapshot();
         if !config
             .custom_runtime_paths
             .iter()
@@ -365,7 +363,7 @@ impl RuntimePane {
     }
 
     fn remove_custom_runtime(&mut self, ctx: &Services, path: &Path) {
-        let mut config = ctx.config();
+        let mut config = ctx.config().snapshot();
         let Some(index) = config
             .custom_runtime_paths
             .iter()
@@ -386,6 +384,7 @@ impl RuntimePane {
             return None;
         };
         ctx.config()
+            .snapshot()
             .custom_runtime_paths
             .iter()
             .find(|custom| custom.as_path() == path.as_path())

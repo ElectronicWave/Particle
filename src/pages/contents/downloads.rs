@@ -12,8 +12,8 @@ use ratatui::{
     widgets::{Gauge, Paragraph, Wrap},
 };
 
-use crate::app::services::{InstallPhase, InstallState, Services};
 use crate::pages::content::{Content, ContentEvent};
+use crate::services::{InstallPhase, InstallState, Services};
 use crate::theme::Theme;
 
 fn download_hints() -> Vec<KeyHint> {
@@ -28,7 +28,7 @@ pub struct DownloadsContent;
 
 impl Content for DownloadsContent {
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let theme = ctx.theme();
+        let theme = ctx.ui().theme();
         let [title_area, body_area] =
             Layout::vertical([Constraint::Length(2), Constraint::Fill(1)]).areas(area);
 
@@ -40,7 +40,7 @@ impl Content for DownloadsContent {
             title_area,
         );
 
-        render_state(frame, body_area, &ctx.install_state(), theme);
+        render_state(frame, body_area, &ctx.install().state(), theme);
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
@@ -48,9 +48,9 @@ impl Content for DownloadsContent {
             return ContentEvent::Ignored;
         }
 
-        let state = ctx.install_state();
+        let state = ctx.install().state();
         if !state.phase.is_preparing() {
-            ctx.reset_install();
+            ctx.install().reset();
         }
         ContentEvent::Handled
     }

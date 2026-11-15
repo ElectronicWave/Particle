@@ -7,8 +7,9 @@ use ratatui::{
     text::Line,
 };
 
-use crate::app::{config::LauncherConfig, services::Services};
+use crate::app::config::LauncherConfig;
 use crate::i18n;
+use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
 use crate::widgets::{
@@ -36,7 +37,7 @@ impl SettingsPane for GeneralPane {
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, areas: PaneAreas, theme: Theme) {
-        let config = ctx.config();
+        let config = ctx.config().snapshot();
         let storage_root = self
             .edit
             .as_ref()
@@ -125,7 +126,7 @@ impl SettingsPane for GeneralPane {
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 if self.selected == 1 {
-                    self.start_path_edit(&ctx.config());
+                    self.start_path_edit(&ctx.config().snapshot());
                     PaneEvent::Handled
                 } else {
                     PaneEvent::Ignored
@@ -172,7 +173,7 @@ impl GeneralPane {
     fn activate(&mut self, ctx: &Services) {
         match self.selected {
             0 => self.open_language(),
-            1 => self.open_picker(ctx.config().storage_root),
+            1 => self.open_picker(ctx.config().snapshot().storage_root),
             _ => {}
         }
     }
@@ -241,7 +242,7 @@ impl GeneralPane {
                     return;
                 }
 
-                let mut config = ctx.config();
+                let mut config = ctx.config().snapshot();
                 config.storage_root = PathBuf::from(value);
                 self.apply(ctx, config);
             }
@@ -259,14 +260,14 @@ impl GeneralPane {
             return;
         }
 
-        let mut config = ctx.config();
+        let mut config = ctx.config().snapshot();
         config.language = Some(i18n::current_locale());
         ctx.redraw().trigger();
         self.apply(ctx, config);
     }
 
     fn set_storage_root(&mut self, ctx: &Services, path: PathBuf) {
-        let mut config = ctx.config();
+        let mut config = ctx.config().snapshot();
         config.storage_root = path;
         self.apply(ctx, config);
     }

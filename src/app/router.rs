@@ -10,7 +10,7 @@ use crate::pages::contents::settings::SettingsContent;
 use crate::pages::page::ShellPage;
 use crate::pages::route::Route;
 
-use super::services::Services;
+use crate::services::Services;
 
 pub struct AppRouter;
 

@@ -1,6 +1,7 @@
 mod app;
 mod i18n;
 mod pages;
+mod services;
 mod theme;
 mod widgets;
 
@@ -9,8 +10,8 @@ use ratail::{App, AppFlow, KeyChord, KeyHint};
 
 use crate::app::hints;
 use crate::app::router::AppRouter;
-use crate::app::services::Services;
 use crate::pages::route::Route;
+use crate::services::Services;
 
 #[tokio::main]
 async fn main() -> Result<()> {

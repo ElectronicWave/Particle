@@ -10,8 +10,8 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
+use crate::services::Services;
 
 fn home_hints() -> Vec<KeyHint> {
     vec![
@@ -25,13 +25,13 @@ pub struct HomeContent;
 
 impl Content for HomeContent {
     fn init(&mut self, ctx: &Services) {
-        ctx.load_accounts();
-        ctx.load_instances();
+        ctx.accounts().load();
+        ctx.instances().load();
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let theme = ctx.theme();
-        let config = ctx.config();
+        let theme = ctx.ui().theme();
+        let config = ctx.config().snapshot();
         let account = account_label(ctx);
         let instances = instance_count(ctx);
 
@@ -68,8 +68,8 @@ impl Content for HomeContent {
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
         match key.code {
             KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                ctx.load_accounts();
-                ctx.load_instances();
+                ctx.accounts().load();
+                ctx.instances().load();
                 ContentEvent::Handled
             }
             _ => ContentEvent::Ignored,
@@ -89,7 +89,7 @@ fn label(key: &str) -> String {
 }
 
 fn account_label(ctx: &Services) -> String {
-    let snapshot = ctx.account_state().snapshot();
+    let snapshot = ctx.accounts().state().snapshot();
     let Some(state) = snapshot.view().data else {
         return t!("common.loading").into_owned();
     };

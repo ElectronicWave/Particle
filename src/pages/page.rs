@@ -7,9 +7,9 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
 use crate::pages::route::Route;
+use crate::services::Services;
 use crate::widgets::panel;
 use crate::widgets::sidebar::Sidebar;
 
@@ -92,7 +92,7 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
     }
 
     fn render(&mut self, ctx: &Services, route: &Route, frame: &mut Frame, area: Rect) {
-        let theme = ctx.theme();
+        let theme = ctx.ui().theme();
         let [sidebar_area, _gutter, content_area] = Layout::horizontal([
             Constraint::Length(sidebar_width()),
             Constraint::Length(1),

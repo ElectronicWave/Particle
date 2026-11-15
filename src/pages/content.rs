@@ -7,8 +7,8 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use crate::app::services::Services;
 use crate::pages::route::Route;
+use crate::services::Services;
 use crate::widgets::spinner;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -39,7 +39,7 @@ pub fn render_message(frame: &mut Frame, area: Rect, message: &str) {
 }
 
 pub fn render_loading(ctx: &Services, frame: &mut Frame, area: Rect, message: &str) {
-    ctx.request_frame(spinner::INTERVAL);
+    ctx.ui().request_frame(spinner::INTERVAL);
     let line = Line::raw(format!("{} {message}", spinner::frame()));
     frame.render_widget(Paragraph::new(line).centered(), area);
 }

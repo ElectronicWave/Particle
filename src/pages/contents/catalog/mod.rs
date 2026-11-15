@@ -3,9 +3,6 @@ mod game_versions;
 mod instance_name;
 mod loader_versions;
 
-pub use game_versions::load_versions;
-pub use loader_versions::load_loader_versions;
-
 use crate::t;
 use elemental::{
     core::minecraft::MinecraftVersionId,
@@ -27,9 +24,9 @@ use self::{
     instance_name::{InstanceNameScreen, NameAction},
     loader_versions::{LoaderSelection, LoaderVersionsScreen},
 };
-use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
 use crate::pages::route::Route;
+use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::cycle::Cycle;
 use crate::widgets::tabs::TabBar;
@@ -95,20 +92,27 @@ impl Default for CatalogContent {
 
 impl Content for CatalogContent {
     fn init(&mut self, ctx: &Services) {
-        ctx.load_catalog(ctx.drivers()[self.driver]);
+        ctx.catalog()
+            .load_versions(ctx.catalog().drivers()[self.driver]);
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let theme = ctx.theme();
+        let theme = ctx.ui().theme();
         let [driver_area, secondary_area, body_area] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Fill(1),
         ])
         .areas(area);
-        render_driver_tabs(frame, driver_area, ctx.drivers(), self.driver, theme);
+        render_driver_tabs(
+            frame,
+            driver_area,
+            ctx.catalog().drivers(),
+            self.driver,
+            theme,
+        );
 
-        let driver = ctx.drivers()[self.driver];
+        let driver = ctx.catalog().drivers()[self.driver];
         match &mut self.screen {
             Screen::GameVersions(screen) => {
                 render_filter_tabs(frame, secondary_area, self.filter, theme);
@@ -152,7 +156,7 @@ impl Content for CatalogContent {
                     let next = self
                         .driver
                         .saturating_add(1)
-                        .min(ctx.drivers().len().saturating_sub(1));
+                        .min(ctx.catalog().drivers().len().saturating_sub(1));
                     self.switch_driver(ctx, next);
                     return ContentEvent::Handled;
                 }
@@ -160,7 +164,7 @@ impl Content for CatalogContent {
             }
         }
 
-        let driver = ctx.drivers()[self.driver];
+        let driver = ctx.catalog().drivers()[self.driver];
         match &mut self.screen {
             Screen::GameVersions(screen) => {
                 let action = screen.on_key(ctx, key, driver, self.filter);
@@ -173,7 +177,7 @@ impl Content for CatalogContent {
                         } else {
                             self.screen =
                                 Screen::LoaderVersions(LoaderVersionsScreen::new(game.clone()));
-                            ctx.load_loader_versions(driver, game);
+                            ctx.catalog().load_loader_versions(driver, game);
                         }
                         ContentEvent::Handled
                     }
@@ -204,7 +208,7 @@ impl Content for CatalogContent {
                 }
                 NameAction::Submit(instance_name) => {
                     if let Some(selection) = &self.selection {
-                        ctx.start_install(
+                        ctx.install().start(
                             instance_name,
                             driver,
                             selection.game.clone(),
@@ -236,7 +240,7 @@ impl CatalogContent {
         self.driver = driver;
         self.selection = None;
         self.screen = Screen::GameVersions(GameVersionsScreen::default());
-        ctx.load_catalog(ctx.drivers()[driver]);
+        ctx.catalog().load_versions(ctx.catalog().drivers()[driver]);
     }
 
     fn cycle_filter(&mut self, forward: bool) {

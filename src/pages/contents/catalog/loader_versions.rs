@@ -2,7 +2,7 @@ use crate::t;
 use elemental::{
     core::minecraft::MinecraftVersionId,
     driver::{catalog::LoaderRelease, driver::DriverDescriptor, loader_version::LoaderVersionId},
-    launcher::{DriverCatalog, error::Error as LauncherError},
+    launcher::error::Error as LauncherError,
 };
 use ratail::SnapshotStatus;
 use ratatui::{
@@ -15,8 +15,8 @@ use ratatui::{
 };
 
 use super::ScreenAction;
-use crate::app::services::Services;
 use crate::pages::content::{render_loading, render_message};
+use crate::services::Services;
 use crate::theme::Theme;
 
 #[derive(Clone, Debug)]
@@ -51,8 +51,8 @@ impl LoaderVersionsScreen {
         driver: DriverDescriptor,
         selection: Option<&LoaderSelection>,
     ) {
-        let theme = ctx.theme();
-        let snapshot = ctx.loader_versions(driver, &self.game).snapshot();
+        let theme = ctx.ui().theme();
+        let snapshot = ctx.catalog().loader_versions(driver, &self.game).snapshot();
         let view = snapshot.view();
         match (view.data, view.error) {
             (Some(data), Some(error)) => {
@@ -128,7 +128,7 @@ impl LoaderVersionsScreen {
     }
 
     fn selected_loader(&self, ctx: &Services, driver: DriverDescriptor) -> Option<LoaderVersionId> {
-        let snapshot = ctx.loader_versions(driver, &self.game).snapshot();
+        let snapshot = ctx.catalog().loader_versions(driver, &self.game).snapshot();
         let data = snapshot.view().data?;
         let selected = self.loaders.selected()?;
 
@@ -163,12 +163,4 @@ fn loader_error_message(error: &anyhow::Error) -> String {
     } else {
         t!("common.error", error = error).into_owned()
     }
-}
-
-pub async fn load_loader_versions(
-    driver: DriverDescriptor,
-    game: MinecraftVersionId,
-) -> Result<Vec<LoaderRelease>, anyhow::Error> {
-    let catalog = DriverCatalog::for_driver(driver)?;
-    Ok(catalog.loader_versions(&game).await?)
 }

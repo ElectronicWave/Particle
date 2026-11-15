@@ -13,8 +13,8 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::app::services::Services;
 use crate::pages::content::{Content, ContentEvent};
+use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
 use crate::widgets::tabs::TabBar;
@@ -46,7 +46,7 @@ impl Content for SettingsContent {
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let theme = ctx.theme();
+        let theme = ctx.ui().theme();
         let [tabs_area, body_area, status_area] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Fill(1),
@@ -112,7 +112,7 @@ impl Content for SettingsContent {
 }
 
 fn default_status(ctx: &Services, theme: Theme) -> Line<'static> {
-    if let Some(error) = ctx.config_error() {
+    if let Some(error) = ctx.config().error() {
         return Line::styled(
             t!("settings.save_failed", error = error),
             Style::new().fg(theme.danger),
@@ -122,7 +122,7 @@ fn default_status(ctx: &Services, theme: Theme) -> Line<'static> {
     Line::styled(
         t!(
             "settings.saved",
-            path = ctx.config().config_path().display().to_string()
+            path = ctx.config().snapshot().config_path().display().to_string()
         ),
         Style::new().fg(theme.text_dim),
     )

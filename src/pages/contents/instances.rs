@@ -10,8 +10,8 @@ use ratatui::{
     widgets::{List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use crate::app::services::{LaunchOutcome, Services};
 use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
+use crate::services::{LaunchOutcome, Services};
 use crate::theme::Theme;
 
 fn instance_hints() -> Vec<KeyHint> {
@@ -30,7 +30,7 @@ pub struct InstancesContent {
 
 impl Content for InstancesContent {
     fn init(&mut self, ctx: &Services) {
-        ctx.load_instances();
+        ctx.instances().load();
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
@@ -38,7 +38,7 @@ impl Content for InstancesContent {
             self.list.select(Some(0));
         }
 
-        let theme = ctx.theme();
+        let theme = ctx.ui().theme();
         let [body_area, status_area] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
 
@@ -80,12 +80,12 @@ impl Content for InstancesContent {
             }
             KeyCode::Enter => {
                 if let Some(instance) = self.selected_instance(ctx) {
-                    ctx.launch_instance(instance);
+                    ctx.launch().launch_instance(instance);
                 }
                 ContentEvent::Handled
             }
             KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                ctx.load_instances();
+                ctx.instances().load();
                 ContentEvent::Handled
             }
             _ => ContentEvent::Ignored,
@@ -202,7 +202,7 @@ fn render_failures(report: &InspectReport, frame: &mut Frame, area: Rect, theme:
 }
 
 fn render_launch_status(ctx: &Services, frame: &mut Frame, area: Rect, theme: Theme) {
-    let snapshot = ctx.launch_task().snapshot();
+    let snapshot = ctx.launch().snapshot();
     let view = snapshot.view();
     let lines = if let Some(error) = view.error {
         vec![Line::styled(

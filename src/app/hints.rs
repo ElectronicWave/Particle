@@ -7,10 +7,10 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use super::services::Services;
+use crate::services::Services;
 
-pub fn render(_ctx: &Services, hints: &[KeyHint], area: Rect, buf: &mut Buffer) {
-    let theme = _ctx.theme();
+pub fn render(ctx: &Services, hints: &[KeyHint], area: Rect, buf: &mut Buffer) {
+    let theme = ctx.ui().theme();
     let mut spans = Vec::new();
 
     for (index, hint) in hints.iter().enumerate() {

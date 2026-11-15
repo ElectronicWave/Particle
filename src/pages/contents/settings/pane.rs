@@ -11,7 +11,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::services::Services;
+use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
 

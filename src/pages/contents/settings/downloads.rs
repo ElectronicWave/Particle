@@ -7,7 +7,7 @@ use ratatui::{
     text::Line,
 };
 
-use crate::app::services::Services;
+use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
 
@@ -27,7 +27,7 @@ impl SettingsPane for DownloadsPane {
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, areas: PaneAreas, theme: Theme) {
-        let config = ctx.config();
+        let config = ctx.config().snapshot();
         let rows = vec![pane::row(
             0,
             0,
@@ -67,7 +67,7 @@ impl SettingsPane for DownloadsPane {
 
 impl DownloadsPane {
     fn adjust(&mut self, ctx: &Services, forward: bool) {
-        let mut config = ctx.config();
+        let mut config = ctx.config().snapshot();
         config.download_parallelism = if forward {
             config
                 .download_parallelism

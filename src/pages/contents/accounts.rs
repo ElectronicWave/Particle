@@ -11,8 +11,8 @@ use ratatui::{
 };
 
 use crate::app::config::microsoft_client_id;
-use crate::app::services::{AccountState, AuthorizationState, Services};
 use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
+use crate::services::{AccountState, AuthorizationState, Services};
 use crate::theme::Theme;
 use crate::widgets::{
     dropdown::Dropdown,
@@ -72,15 +72,17 @@ impl Default for AccountsContent {
 
 impl Content for AccountsContent {
     fn init(&mut self, ctx: &Services) {
-        ctx.load_accounts();
+        ctx.accounts().load();
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let theme = ctx.theme();
+        let theme = ctx.ui().theme();
         let [list_area, footer_area] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
 
-        if matches!(self.mode, Mode::Authorize) && ctx.authorization() == AuthorizationState::Idle {
+        if matches!(self.mode, Mode::Authorize)
+            && ctx.accounts().authorization() == AuthorizationState::Idle
+        {
             self.mode = Mode::List;
         }
 
@@ -89,7 +91,7 @@ impl Content for AccountsContent {
             return;
         }
 
-        let snapshot = ctx.account_state().snapshot();
+        let snapshot = ctx.accounts().state().snapshot();
         let view = snapshot.view();
         match (view.data, view.error) {
             (Some(state), Some(error)) => {
@@ -145,7 +147,7 @@ impl Content for AccountsContent {
             Mode::List => return self.on_list_key(ctx, key),
             Mode::Authorize => {
                 if key.code == KeyCode::Esc {
-                    ctx.cancel_authorization();
+                    ctx.accounts().cancel_authorization();
                 }
                 return ContentEvent::Handled;
             }
@@ -156,7 +158,7 @@ impl Content for AccountsContent {
             EditEvent::Submit => {
                 let name = edit.input().trim().to_owned();
                 if !name.is_empty() {
-                    ctx.sign_in_offline(name);
+                    ctx.accounts().sign_in_offline(name);
                 }
             }
             EditEvent::Changed => self.mode = Mode::AddOffline(edit),
@@ -186,7 +188,7 @@ impl AccountsContent {
         area: Rect,
         theme: Theme,
     ) -> bool {
-        match ctx.authorization() {
+        match ctx.accounts().authorization() {
             AuthorizationState::Idle => false,
             AuthorizationState::Starting => {
                 render_loading(ctx, frame, area, t!("accounts.microsoft_starting").as_ref());
@@ -232,7 +234,7 @@ impl AccountsContent {
                     self.error = Some(t!("accounts.microsoft_not_configured").into_owned());
                     return;
                 };
-                if ctx.sign_in_microsoft(client_id) {
+                if ctx.accounts().sign_in_microsoft(client_id) {
                     self.mode = Mode::Authorize;
                 } else {
                     self.error = Some(t!("accounts.busy").into_owned());
@@ -312,7 +314,7 @@ impl AccountsContent {
             }
             KeyCode::Enter => match self.selected_account(ctx) {
                 Some(account_id) => {
-                    ctx.select_account(account_id);
+                    ctx.accounts().select(account_id);
                     ContentEvent::Handled
                 }
                 None => ContentEvent::Handled,
@@ -332,12 +334,12 @@ impl AccountsContent {
             }
             KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(account_id) = self.selected_account(ctx) {
-                    ctx.remove_account(account_id);
+                    ctx.accounts().remove(account_id);
                 }
                 ContentEvent::Handled
             }
             KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                ctx.load_accounts();
+                ctx.accounts().load();
                 ContentEvent::Handled
             }
             _ => ContentEvent::Ignored,
@@ -345,7 +347,7 @@ impl AccountsContent {
     }
 
     fn selected_account(&self, ctx: &Services) -> Option<AccountId> {
-        let snapshot = ctx.account_state().snapshot();
+        let snapshot = ctx.accounts().state().snapshot();
         let state = snapshot.view().data?;
         let selected = self.list.selected()?;
         state.accounts.get(selected).map(|account| account.id)

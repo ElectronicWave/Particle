@@ -1,8 +1,7 @@
 use crate::t;
 use elemental::{
-    core::minecraft::{MinecraftVersion, MinecraftVersionId},
+    core::minecraft::MinecraftVersionId,
     driver::{catalog::GameVersion, driver::DriverDescriptor},
-    launcher::DriverCatalog,
 };
 use ratail::SnapshotStatus;
 use ratatui::{
@@ -13,8 +12,8 @@ use ratatui::{
 };
 
 use super::{ScreenAction, filter::VersionFilter};
-use crate::app::services::Services;
 use crate::pages::content::{render_loading, render_message};
+use crate::services::Services;
 use crate::theme::Theme;
 
 #[derive(Debug)]
@@ -43,8 +42,8 @@ impl GameVersionsScreen {
         driver: DriverDescriptor,
         filter: VersionFilter,
     ) {
-        let theme = ctx.theme();
-        let snapshot = ctx.catalog(driver).snapshot();
+        let theme = ctx.ui().theme();
+        let snapshot = ctx.catalog().versions(driver).snapshot();
         let view = snapshot.view();
         match (view.data, view.error) {
             (Some(data), Some(error)) => {
@@ -123,7 +122,7 @@ impl GameVersionsScreen {
         driver: DriverDescriptor,
         filter: VersionFilter,
     ) -> Option<MinecraftVersionId> {
-        let snapshot = ctx.catalog(driver).snapshot();
+        let snapshot = ctx.catalog().versions(driver).snapshot();
         let data = snapshot.view().data?;
         let versions = data
             .iter()
@@ -133,23 +132,4 @@ impl GameVersionsScreen {
 
         versions.get(selected).map(|version| version.id.clone())
     }
-}
-
-pub async fn load_versions(driver: DriverDescriptor) -> Result<Vec<GameVersion>, anyhow::Error> {
-    let catalog = DriverCatalog::for_driver(driver)?;
-    let mut versions = catalog.game_versions().await?;
-
-    // Newest first; unparseable ids sort last by raw id.
-    versions.sort_by(|left, right| {
-        let left_key = MinecraftVersion::parse_id(&left.id)
-            .ok()
-            .map(|version| version.key());
-        let right_key = MinecraftVersion::parse_id(&right.id)
-            .ok()
-            .map(|version| version.key());
-        right_key
-            .cmp(&left_key)
-            .then_with(|| right.id.as_str().cmp(left.id.as_str()))
-    });
-    Ok(versions)
 }
