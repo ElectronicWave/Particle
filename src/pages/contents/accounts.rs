@@ -10,16 +10,21 @@ use ratatui::{
     widgets::{List, ListItem, ListState, Paragraph},
 };
 
-use crate::app::services::{AccountState, Services};
+use crate::app::config::microsoft_client_id;
+use crate::app::services::{AccountState, AuthorizationState, Services};
 use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
 use crate::theme::Theme;
-use crate::widgets::text_edit::{EditEvent, TextEdit};
+use crate::widgets::{
+    dropdown::Dropdown,
+    popup::{Popup, PopupEvent},
+    text_edit::{EditEvent, TextEdit},
+};
 
 fn list_hints() -> Vec<KeyHint> {
     vec![
         KeyHint::new("↑/↓", t!("common.browse")),
         KeyHint::new("ENTER", t!("common.select")),
-        KeyHint::new("A", t!("common.add_offline")),
+        KeyHint::new("A", t!("common.add_account")),
         KeyHint::new("D", t!("common.remove")),
         KeyHint::new("R", t!("common.refresh")),
         KeyHint::new("ESC", t!("common.return")),
@@ -36,20 +41,31 @@ fn add_hints() -> Vec<KeyHint> {
 #[derive(Debug)]
 enum Mode {
     List,
-    Add(TextEdit),
+    AddOffline(TextEdit),
+    Authorize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthorizerKind {
+    Microsoft,
+    Offline,
 }
 
 #[derive(Debug)]
 pub struct AccountsContent {
     mode: Mode,
+    authorizer: Option<Dropdown<AuthorizerKind>>,
     list: ListState,
+    error: Option<String>,
 }
 
 impl Default for AccountsContent {
     fn default() -> Self {
         Self {
             mode: Mode::List,
+            authorizer: None,
             list: ListState::default().with_selected(Some(0)),
+            error: None,
         }
     }
 }
@@ -63,6 +79,15 @@ impl Content for AccountsContent {
         let theme = ctx.theme();
         let [list_area, footer_area] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
+
+        if matches!(self.mode, Mode::Authorize) && ctx.authorization() == AuthorizationState::Idle {
+            self.mode = Mode::List;
+        }
+
+        if self.render_authorization(ctx, frame, list_area, theme) {
+            self.render_footer(frame, footer_area, theme);
+            return;
+        }
 
         let snapshot = ctx.account_state().snapshot();
         let view = snapshot.view();
@@ -88,12 +113,43 @@ impl Content for AccountsContent {
         }
 
         self.render_footer(frame, footer_area, theme);
+
+        if let Some(popup) = &self.authorizer {
+            let anchor = Rect {
+                x: area.x,
+                y: footer_area.y,
+                width: 1,
+                height: 1,
+            };
+            popup.render(frame, area, anchor, theme);
+        }
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
+        if let Some(popup) = &mut self.authorizer {
+            match popup.handle_key(key) {
+                PopupEvent::Ignored | PopupEvent::Handled => return ContentEvent::Handled,
+                PopupEvent::Cancelled => {
+                    self.authorizer = None;
+                    return ContentEvent::Handled;
+                }
+                PopupEvent::Completed(kind) => {
+                    self.authorizer = None;
+                    self.start_authorizer(ctx, kind);
+                    return ContentEvent::Handled;
+                }
+            }
+        }
+
         let mut edit = match std::mem::replace(&mut self.mode, Mode::List) {
             Mode::List => return self.on_list_key(ctx, key),
-            Mode::Add(edit) => edit,
+            Mode::Authorize => {
+                if key.code == KeyCode::Esc {
+                    ctx.cancel_authorization();
+                }
+                return ContentEvent::Handled;
+            }
+            Mode::AddOffline(edit) => edit,
         };
 
         match edit.handle_key(key) {
@@ -103,22 +159,88 @@ impl Content for AccountsContent {
                     ctx.sign_in_offline(name);
                 }
             }
-            EditEvent::Changed => self.mode = Mode::Add(edit),
-            EditEvent::Unhandled => self.mode = Mode::Add(edit),
+            EditEvent::Changed => self.mode = Mode::AddOffline(edit),
+            EditEvent::Unhandled => self.mode = Mode::AddOffline(edit),
             EditEvent::Cancel => {}
         }
         ContentEvent::Handled
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
+        if let Some(popup) = &self.authorizer {
+            return popup.hints();
+        }
         match self.mode {
             Mode::List => list_hints(),
-            Mode::Add(_) => add_hints(),
+            Mode::AddOffline(_) => add_hints(),
+            Mode::Authorize => vec![KeyHint::new("ESC", t!("common.cancel"))],
         }
     }
 }
 
 impl AccountsContent {
+    fn render_authorization(
+        &self,
+        ctx: &Services,
+        frame: &mut Frame,
+        area: Rect,
+        theme: Theme,
+    ) -> bool {
+        match ctx.authorization() {
+            AuthorizationState::Idle => false,
+            AuthorizationState::Starting => {
+                render_loading(ctx, frame, area, t!("accounts.microsoft_starting").as_ref());
+                true
+            }
+            AuthorizationState::Awaiting {
+                verification_uri,
+                user_code,
+            } => {
+                let dim = Style::new().fg(theme.text_dim);
+                let strong = Style::new().fg(theme.accent).add_modifier(Modifier::BOLD);
+                let lines = vec![
+                    Line::styled(
+                        t!("accounts.microsoft_title"),
+                        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+                    ),
+                    Line::raw(""),
+                    Line::from(vec![
+                        Span::styled(t!("accounts.microsoft_open"), dim),
+                        Span::styled(verification_uri, strong),
+                    ]),
+                    Line::from(vec![
+                        Span::styled(t!("accounts.microsoft_code"), dim),
+                        Span::styled(user_code, strong),
+                    ]),
+                    Line::raw(""),
+                    Line::styled(t!("accounts.microsoft_waiting"), dim),
+                ];
+                frame.render_widget(Paragraph::new(lines), area);
+                true
+            }
+        }
+    }
+
+    fn start_authorizer(&mut self, ctx: &Services, kind: AuthorizerKind) {
+        self.error = None;
+        match kind {
+            AuthorizerKind::Offline => {
+                self.mode = Mode::AddOffline(TextEdit::new(String::new()));
+            }
+            AuthorizerKind::Microsoft => {
+                let Some(client_id) = microsoft_client_id().map(str::to_owned) else {
+                    self.error = Some(t!("accounts.microsoft_not_configured").into_owned());
+                    return;
+                };
+                if ctx.sign_in_microsoft(client_id) {
+                    self.mode = Mode::Authorize;
+                } else {
+                    self.error = Some(t!("accounts.busy").into_owned());
+                }
+            }
+        }
+    }
+
     fn render_accounts(
         &mut self,
         state: &AccountState,
@@ -161,14 +283,18 @@ impl AccountsContent {
 
     fn render_footer(&self, frame: &mut Frame, area: Rect, theme: Theme) {
         let line = match &self.mode {
-            Mode::List => Line::from(Span::styled(
-                t!("accounts.note"),
-                Style::new().fg(theme.text_dim),
-            )),
-            Mode::Add(edit) => Line::from(vec![
+            Mode::List => match &self.error {
+                Some(error) => Line::styled(error.clone(), Style::new().fg(theme.danger)),
+                None => Line::styled(t!("accounts.note"), Style::new().fg(theme.text_dim)),
+            },
+            Mode::AddOffline(edit) => Line::from(vec![
                 Span::styled(t!("accounts.username"), Style::new().fg(theme.accent)),
                 Span::raw(edit.cursor_display()),
             ]),
+            Mode::Authorize => Line::styled(
+                t!("accounts.microsoft_waiting"),
+                Style::new().fg(theme.text_dim),
+            ),
         };
 
         frame.render_widget(Paragraph::new(line), area);
@@ -192,7 +318,16 @@ impl AccountsContent {
                 None => ContentEvent::Handled,
             },
             KeyCode::Char('a') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.mode = Mode::Add(TextEdit::new(String::new()));
+                self.error = None;
+                let options = vec![
+                    (
+                        t!("accounts.microsoft").into_owned(),
+                        AuthorizerKind::Microsoft,
+                    ),
+                    (t!("accounts.offline").into_owned(), AuthorizerKind::Offline),
+                ];
+                self.authorizer =
+                    Some(Dropdown::open(t!("accounts.authorizer_picker"), options, 0));
                 ContentEvent::Handled
             }
             KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {

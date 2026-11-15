@@ -1,4 +1,5 @@
 use crate::t;
+use elemental::launcher::{InspectReport, Instance};
 use ratail::{KeyHint, SnapshotStatus};
 use ratatui::{
     Frame,
@@ -6,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, ListState, Paragraph, Wrap},
 };
 
 use crate::app::services::{LaunchOutcome, Services};
@@ -44,17 +45,17 @@ impl Content for InstancesContent {
         let snapshot = ctx.instances().snapshot();
         let view = snapshot.view();
         match (view.data, view.error) {
-            (Some(instances), Some(error)) => {
-                let [error_area, list_area] =
+            (Some(report), Some(error)) => {
+                let [error_area, report_area] =
                     Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(body_area);
                 render_message(
                     frame,
                     error_area,
                     t!("common.error", error = error).as_ref(),
                 );
-                self.render_instances(instances, frame, list_area, theme);
+                self.render_report(report, frame, report_area, theme);
             }
-            (Some(instances), None) => self.render_instances(instances, frame, body_area, theme),
+            (Some(report), None) => self.render_report(report, frame, body_area, theme),
             (None, Some(error)) => {
                 render_message(frame, body_area, t!("common.error", error = error).as_ref())
             }
@@ -97,9 +98,32 @@ impl Content for InstancesContent {
 }
 
 impl InstancesContent {
+    fn render_report(
+        &mut self,
+        report: &InspectReport,
+        frame: &mut Frame,
+        area: Rect,
+        theme: Theme,
+    ) {
+        let (list_area, failures_area) = if report.failures.is_empty() {
+            (area, None)
+        } else {
+            let visible = report.failures.len().min(4);
+            let height = visible as u16 + 1;
+            let [list_area, failures_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(height)]).areas(area);
+            (list_area, Some(failures_area))
+        };
+
+        self.render_instances(&report.instances, frame, list_area, theme);
+        if let Some(failures_area) = failures_area {
+            render_failures(report, frame, failures_area, theme);
+        }
+    }
+
     fn render_instances(
         &mut self,
-        instances: &[elemental::launcher::Instance],
+        instances: &[Instance],
         frame: &mut Frame,
         area: Rect,
         theme: Theme,
@@ -138,12 +162,43 @@ impl InstancesContent {
 
     fn selected_instance(&self, ctx: &Services) -> Option<String> {
         let snapshot = ctx.instances().snapshot();
-        let instances = snapshot.view().data?;
+        let report = snapshot.view().data?;
         let selected = self.list.selected()?;
-        instances
+        report
+            .instances
             .get(selected)
             .map(|instance| instance.instance_name.clone())
     }
+}
+
+fn render_failures(report: &InspectReport, frame: &mut Frame, area: Rect, theme: Theme) {
+    let mut lines = vec![Line::styled(
+        t!("instances.failures", count = report.failures.len()),
+        Style::new().fg(theme.warning),
+    )];
+    let visible = report.failures.len().min(4);
+    for failure in &report.failures[..visible] {
+        lines.push(Line::styled(
+            t!(
+                "instances.failure",
+                instance = failure.instance_name.as_str(),
+                path = failure.path.display().to_string(),
+                error = failure.error.to_string()
+            ),
+            Style::new().fg(theme.danger),
+        ));
+    }
+    if report.failures.len() > visible {
+        lines.push(Line::styled(
+            t!(
+                "instances.failures_more",
+                count = report.failures.len() - visible
+            ),
+            Style::new().fg(theme.text_dim),
+        ));
+    }
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
 fn render_launch_status(ctx: &Services, frame: &mut Frame, area: Rect, theme: Theme) {

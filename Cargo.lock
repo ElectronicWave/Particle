@@ -610,7 +610,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "elemental-core"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#839b7ec9fa6096d154fde4ccce7db80a360c66a2"
 dependencies = [
  "async-trait",
  "dirs",
@@ -636,7 +636,7 @@ dependencies = [
 [[package]]
 name = "elemental-driver"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#839b7ec9fa6096d154fde4ccce7db80a360c66a2"
 dependencies = [
  "async-trait",
  "elemental-core",
@@ -655,7 +655,7 @@ dependencies = [
 [[package]]
 name = "elemental-infra"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#839b7ec9fa6096d154fde4ccce7db80a360c66a2"
 dependencies = [
  "async-trait",
  "futures",
@@ -672,7 +672,7 @@ dependencies = [
 [[package]]
 name = "elemental-kit"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#839b7ec9fa6096d154fde4ccce7db80a360c66a2"
 dependencies = [
  "elemental-core",
  "elemental-driver",
@@ -685,7 +685,7 @@ dependencies = [
 [[package]]
 name = "elemental-launcher"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#839b7ec9fa6096d154fde4ccce7db80a360c66a2"
 dependencies = [
  "elemental-core",
  "elemental-driver",
@@ -701,7 +701,7 @@ dependencies = [
 [[package]]
 name = "elemental-schema"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#839b7ec9fa6096d154fde4ccce7db80a360c66a2"
 dependencies = [
  "jiff",
  "serde",
@@ -711,7 +711,7 @@ dependencies = [
 [[package]]
 name = "elemental-shared"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#b4d6e8426c2ef72cfefbdc9ebe971d6198dea844"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#839b7ec9fa6096d154fde4ccce7db80a360c66a2"
 dependencies = [
  "dirs",
  "serde",

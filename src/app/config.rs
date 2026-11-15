@@ -20,6 +20,10 @@ const CONFIG_ID: &str = "particle";
 const CONFIG_DIR: &str = ".elemental";
 const CONFIG_EXTENSION: &str = "toml";
 
+pub fn microsoft_client_id() -> Option<&'static str> {
+    option_env!("PARTICLE_MICROSOFT_CLIENT_ID").filter(|value| !value.is_empty())
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RuntimeValidation {

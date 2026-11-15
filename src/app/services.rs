@@ -12,7 +12,7 @@ use elemental::{
     core::{
         auth::{
             accounts::{Account, AccountId},
-            authorizers::offline::OfflineAuthorizer,
+            authorizers::{microsoft::MicrosoftAuthorizer, offline::OfflineAuthorizer},
         },
         minecraft::MinecraftVersionId,
         runtime::{
@@ -26,7 +26,7 @@ use elemental::{
         loader_version::LoaderVersionId,
     },
     infra::downloader::DownloadProgress,
-    launcher::{AccountStore, DriverCatalog, DriverSpec, Instance, LaunchOptions, Launcher},
+    launcher::{AccountStore, DriverCatalog, DriverSpec, InspectReport, LaunchOptions, Launcher},
     shared::scope::Scope,
 };
 use ratail::{Context, Redraw, Task, TaskCache};
@@ -48,6 +48,17 @@ pub struct AccountSummary {
 pub struct AccountState {
     pub accounts: Vec<AccountSummary>,
     pub selected: Option<AccountId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum AuthorizationState {
+    #[default]
+    Idle,
+    Starting,
+    Awaiting {
+        verification_uri: String,
+        user_code: String,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,7 +111,8 @@ pub struct Services {
     catalogs: TaskCache<&'static str, Vec<GameVersion>, Error>,
     loader_versions: TaskCache<(&'static str, MinecraftVersionId), Vec<LoaderRelease>, Error>,
     account_state: Task<AccountState, Error>,
-    instances: Task<Vec<Instance>, Error>,
+    authorization: Arc<Mutex<AuthorizationState>>,
+    instances: Task<InspectReport, Error>,
     runtimes: Task<Vec<Distribution>, Error>,
     launch: Task<LaunchOutcome, Error>,
     install: Arc<Mutex<InstallState>>,
@@ -126,6 +138,7 @@ impl Services {
             catalogs: TaskCache::new(&redraw),
             loader_versions: TaskCache::new(&redraw),
             account_state: Task::with_redraw(&redraw),
+            authorization: Arc::new(Mutex::new(AuthorizationState::Idle)),
             instances: Task::with_redraw(&redraw),
             runtimes: Task::with_redraw(&redraw),
             launch: Task::with_redraw(&redraw),
@@ -209,6 +222,13 @@ impl Services {
             .spawn_once(move || async move { load_account_state(&store).await })
     }
 
+    pub fn authorization(&self) -> AuthorizationState {
+        self.authorization
+            .lock()
+            .expect("authorization lock poisoned")
+            .clone()
+    }
+
     pub fn sign_in_offline(&self, username: String) -> bool {
         let store = self.accounts.clone();
         self.account_state.spawn_once(move || async move {
@@ -217,6 +237,64 @@ impl Services {
             store.select(account.account_id()).await?;
             load_account_state(&store).await
         })
+    }
+
+    pub fn sign_in_microsoft(&self, client_id: String) -> bool {
+        let client_id = client_id.trim().to_owned();
+        if client_id.is_empty() {
+            return false;
+        }
+
+        let store = self.accounts.clone();
+        let prompt = self.authorization.clone();
+        let task_prompt = prompt.clone();
+        let redraw = self.redraw.clone();
+        *prompt.lock().expect("authorization lock poisoned") = AuthorizationState::Starting;
+        self.redraw.trigger();
+
+        let spawned = self.account_state.spawn_once(move || async move {
+            let handler_prompt = task_prompt.clone();
+            let handler_redraw = redraw.clone();
+            let authorizer =
+                MicrosoftAuthorizer::new(client_id, move |verification_uri, user_code| {
+                    *handler_prompt.lock().expect("authorization lock poisoned") =
+                        AuthorizationState::Awaiting {
+                            verification_uri,
+                            user_code,
+                        };
+                    handler_redraw.trigger();
+                    Ok(())
+                });
+
+            let result: anyhow::Result<AccountState> = async {
+                let account = store.sign_in(&authorizer).await.map_err(Error::from)?;
+                store
+                    .select(account.account_id())
+                    .await
+                    .map_err(Error::from)?;
+                load_account_state(&store).await
+            }
+            .await;
+
+            *task_prompt.lock().expect("authorization lock poisoned") = AuthorizationState::Idle;
+            redraw.trigger();
+            result
+        });
+
+        if !spawned {
+            *prompt.lock().expect("authorization lock poisoned") = AuthorizationState::Idle;
+            self.redraw.trigger();
+        }
+        spawned
+    }
+
+    pub fn cancel_authorization(&self) {
+        self.account_state.cancel();
+        *self
+            .authorization
+            .lock()
+            .expect("authorization lock poisoned") = AuthorizationState::Idle;
+        self.redraw.trigger();
     }
 
     pub fn select_account(&self, account_id: AccountId) -> bool {
@@ -235,7 +313,7 @@ impl Services {
         })
     }
 
-    pub fn instances(&self) -> Task<Vec<Instance>, Error> {
+    pub fn instances(&self) -> Task<InspectReport, Error> {
         self.instances.clone()
     }
 

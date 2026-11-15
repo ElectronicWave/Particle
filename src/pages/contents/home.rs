@@ -109,7 +109,7 @@ fn instance_count(ctx: &Services) -> usize {
     snapshot
         .view()
         .data
-        .map(|instances| instances.len())
+        .map(|report| report.instances.len())
         .unwrap_or(0)
 }
 
