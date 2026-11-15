@@ -4,7 +4,10 @@ use anyhow::Error;
 use elemental::{
     core::auth::{
         accounts::{Account, AccountId},
-        authorizers::{microsoft::MicrosoftAuthorizer, offline::OfflineAuthorizer},
+        authorizers::{
+            microsoft::MicrosoftAuthorizer, offline::OfflineAuthorizer,
+            yggdrasil::YggdrasilAuthorizer,
+        },
     },
     launcher::AccountStore,
 };
@@ -125,6 +128,27 @@ impl AccountService {
             self.redraw.trigger();
         }
         spawned
+    }
+
+    pub fn sign_in_yggdrasil(&self, base_url: String, username: String, password: String) -> bool {
+        let base_url = base_url.trim().trim_end_matches('/').to_owned();
+        let username = username.trim().to_owned();
+        if base_url.is_empty() || username.is_empty() || password.is_empty() {
+            return false;
+        }
+
+        let store = self.store.clone();
+        self.state.spawn_once(move || async move {
+            let authorizer = YggdrasilAuthorizer {
+                base_url,
+                username,
+                password,
+                client_token: None,
+            };
+            let account = store.sign_in(&authorizer).await?;
+            store.select(account.account_id()).await?;
+            load_account_state(&store).await
+        })
     }
 
     pub fn cancel_authorization(&self) {

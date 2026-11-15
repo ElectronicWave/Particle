@@ -7,6 +7,7 @@ edition = "2024"
 elemental = { git = "https://github.com/ElectronicWave/Elemental", branch = "main", package = "elemental-kit", default-features = false, features = [
     "launcher",
     "shared-toml",
+    "yggdrasil-auth",
 ] }
 anyhow = "1.0.102"
 color-eyre = "0.6.5"
