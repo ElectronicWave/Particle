@@ -1,92 +1,55 @@
 use std::fmt::Write;
 
+use crate::services::{InstallPhase, InstallSession};
 use crate::t;
+use crate::theme::Theme;
 use elemental::infra::downloader::DownloadProgress;
-use ratail::KeyHint;
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Gauge, Paragraph, Wrap},
 };
 
-use crate::pages::content::{Content, ContentEvent};
-use crate::services::{InstallPhase, InstallState, Services};
-use crate::theme::Theme;
-
-fn download_hints() -> Vec<KeyHint> {
-    vec![
-        KeyHint::new("ENTER", t!("common.dismiss")),
-        KeyHint::new("ESC", t!("common.return")),
-    ]
-}
-
-#[derive(Debug, Default)]
-pub struct DownloadsContent;
-
-impl Content for DownloadsContent {
-    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let theme = ctx.ui().theme();
-        let [title_area, body_area] =
-            Layout::vertical([Constraint::Length(2), Constraint::Fill(1)]).areas(area);
-
-        frame.render_widget(
-            Paragraph::new(Line::styled(
-                t!("downloads.title"),
-                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-            )),
-            title_area,
-        );
-
-        render_state(frame, body_area, &ctx.install().state(), theme);
-    }
-
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
-        if key.code != KeyCode::Enter {
-            return ContentEvent::Ignored;
-        }
-
-        let state = ctx.install().state();
-        if !state.phase.is_preparing() {
-            ctx.install().reset();
-        }
-        ContentEvent::Handled
-    }
-
-    fn keybindings(&self) -> Vec<KeyHint> {
-        download_hints()
+pub(super) fn render(session: &InstallSession, frame: &mut Frame, area: Rect, theme: Theme) {
+    match &session.phase {
+        InstallPhase::Preparing => render_progress(frame, area, session, theme),
+        InstallPhase::Done => render_done(frame, area, &session.instance_name, theme),
+        InstallPhase::Failed(error) => render_failed(frame, area, error, theme),
     }
 }
 
-fn render_state(frame: &mut Frame, area: Rect, state: &InstallState, theme: Theme) {
-    match &state.phase {
-        InstallPhase::Idle => {
-            render_message(frame, area, t!("downloads.empty").as_ref());
-        }
-        InstallPhase::Preparing => render_progress(frame, area, state, theme),
-        InstallPhase::Done => {
-            render_message(
-                frame,
-                area,
-                t!("downloads.done", instance = state.instance_name.as_str()).as_ref(),
-            );
-        }
-        InstallPhase::Failed(error) => {
-            let lines = vec![
-                Line::styled(t!("downloads.failed"), Style::new().fg(theme.danger).bold()),
-                Line::raw(""),
-                Line::raw(error.clone()),
-                Line::raw(""),
-                Line::styled(t!("downloads.dismiss"), Style::new().fg(theme.text_dim)),
-            ];
-            frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
-        }
-    }
+fn render_done(frame: &mut Frame, area: Rect, instance_name: &str, theme: Theme) {
+    let lines = vec![
+        Line::styled(
+            t!("downloads.status_done"),
+            Style::new().fg(theme.success).add_modifier(Modifier::BOLD),
+        ),
+        Line::raw(""),
+        Line::styled(
+            t!("downloads.done", instance = instance_name),
+            Style::new().fg(theme.text_dim),
+        ),
+    ];
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
-fn render_progress(frame: &mut Frame, area: Rect, state: &InstallState, theme: Theme) {
+fn render_failed(frame: &mut Frame, area: Rect, error: &str, theme: Theme) {
+    let lines = vec![
+        Line::styled(
+            t!("downloads.failed"),
+            Style::new().fg(theme.danger).add_modifier(Modifier::BOLD),
+        ),
+        Line::raw(""),
+        Line::raw(error.to_owned()),
+        Line::raw(""),
+        Line::styled(t!("downloads.dismiss"), Style::new().fg(theme.text_dim)),
+    ];
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
+
+fn render_progress(frame: &mut Frame, area: Rect, session: &InstallSession, theme: Theme) {
     let [header_area, gauge_area, stats_area, tasks_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(3),
@@ -100,14 +63,14 @@ fn render_progress(frame: &mut Frame, area: Rect, state: &InstallState, theme: T
             Span::styled(t!("downloads.installing"), Style::new().fg(theme.accent)),
             Span::raw(" "),
             Span::styled(
-                &state.instance_name,
+                &session.instance_name,
                 Style::new().add_modifier(Modifier::BOLD),
             ),
         ])),
         header_area,
     );
 
-    let progress = &state.progress;
+    let progress = &session.progress;
     let ratio = progress_ratio(progress);
     frame.render_widget(
         Gauge::default()
@@ -146,14 +109,7 @@ fn render_progress(frame: &mut Frame, area: Rect, state: &InstallState, theme: T
     );
 }
 
-fn render_message(frame: &mut Frame, area: Rect, message: &str) {
-    let paragraph = Paragraph::new(message)
-        .style(Style::new().add_modifier(Modifier::BOLD))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
-}
-
-fn progress_ratio(progress: &DownloadProgress) -> f64 {
+pub(super) fn progress_ratio(progress: &DownloadProgress) -> f64 {
     match progress.expected_bytes {
         Some(expected) if expected > 0 => {
             (progress.ready_bytes() as f64 / expected as f64).min(1.0)

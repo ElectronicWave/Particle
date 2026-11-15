@@ -43,7 +43,7 @@ impl<C> ShellPage<C> {
         match key.code {
             KeyCode::Down => self.navigate_to(route, route.next()),
             KeyCode::Up => self.navigate_to(route, route.previous()),
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Right => {
                 self.focus = Focus::Content;
                 PageEvent::Handled
             }

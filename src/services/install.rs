@@ -1,4 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use elemental::{
     core::minecraft::MinecraftVersionId,
@@ -13,25 +19,33 @@ use super::{
     runtime::options_for,
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct InstallState {
+type SessionStore = Arc<Mutex<BTreeMap<InstallSessionId, InstallSession>>>;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct InstallSessionId(u64);
+
+#[derive(Debug, Clone)]
+pub struct InstallSession {
+    pub id: InstallSessionId,
     pub instance_name: String,
     pub phase: InstallPhase,
     pub progress: DownloadProgress,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallPhase {
-    #[default]
-    Idle,
     Preparing,
     Done,
     Failed(String),
 }
 
 impl InstallPhase {
-    pub fn is_preparing(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         matches!(self, Self::Preparing)
+    }
+
+    pub fn can_dismiss(&self) -> bool {
+        !self.is_active()
     }
 }
 
@@ -39,7 +53,8 @@ pub struct InstallService {
     launcher: LauncherHandle,
     config: ConfigService,
     instances: InstanceService,
-    state: Arc<Mutex<InstallState>>,
+    sessions: SessionStore,
+    next_session_id: AtomicU64,
     redraw: Redraw,
 }
 
@@ -54,20 +69,37 @@ impl InstallService {
             launcher,
             config,
             instances,
-            state: Arc::new(Mutex::new(InstallState::default())),
+            sessions: Arc::new(Mutex::new(BTreeMap::new())),
+            next_session_id: AtomicU64::new(0),
             redraw,
         }
     }
 
-    pub fn state(&self) -> InstallState {
-        self.state.lock().expect("install lock poisoned").clone()
+    pub fn sessions(&self) -> Vec<InstallSession> {
+        self.sessions
+            .lock()
+            .expect("install sessions lock poisoned")
+            .values()
+            .rev()
+            .cloned()
+            .collect()
     }
 
-    pub fn reset(&self) {
-        let mut state = self.state.lock().expect("install lock poisoned");
-        if !state.phase.is_preparing() {
-            *state = InstallState::default();
+    pub fn dismiss(&self, id: InstallSessionId) -> bool {
+        let removed = {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("install sessions lock poisoned");
+            match sessions.get(&id) {
+                Some(session) if session.phase.can_dismiss() => sessions.remove(&id).is_some(),
+                _ => false,
+            }
+        };
+        if removed {
+            self.redraw.trigger();
         }
+        removed
     }
 
     pub fn start(
@@ -76,39 +108,34 @@ impl InstallService {
         driver: DriverDescriptor,
         game_version: MinecraftVersionId,
         loader_version: Option<LoaderVersionId>,
-    ) -> bool {
-        {
-            let state = self.state.lock().expect("install lock poisoned");
-            if state.phase.is_preparing() {
-                return false;
-            }
-        }
-
+    ) -> InstallSessionId {
+        let id = InstallSessionId(self.next_session_id.fetch_add(1, Ordering::Relaxed));
         let spec = match DriverSpec::from_descriptor(driver, game_version, loader_version) {
             Ok(spec) => spec,
             Err(error) => {
-                let mut state = self.state.lock().expect("install lock poisoned");
-                state.instance_name = instance_name;
-                state.phase = InstallPhase::Failed(error.to_string());
+                self.insert_session(InstallSession {
+                    id,
+                    instance_name,
+                    phase: InstallPhase::Failed(error.to_string()),
+                    progress: DownloadProgress::default(),
+                });
                 self.redraw.trigger();
-                return true;
+                return id;
             }
         };
 
         let config = self.config.snapshot();
         let parallelism = config.download_parallelism.max(1);
         let launcher = self.launcher.get();
-        let install = self.state.clone();
+        let sessions = self.sessions.clone();
         let redraw = self.redraw.clone();
 
-        {
-            let mut state = install.lock().expect("install lock poisoned");
-            *state = InstallState {
-                instance_name: instance_name.clone(),
-                phase: InstallPhase::Preparing,
-                progress: Default::default(),
-            };
-        }
+        self.insert_session(InstallSession {
+            id,
+            instance_name: instance_name.clone(),
+            phase: InstallPhase::Preparing,
+            progress: DownloadProgress::default(),
+        });
         self.redraw.trigger();
 
         let instances = self.instances.clone();
@@ -117,7 +144,7 @@ impl InstallService {
             let runtime = match options_for(&config, Some(&instance_name)).await {
                 Ok(runtime) => runtime,
                 Err(error) => {
-                    set_install_failed(&install, &redraw, format!("{error:#}"));
+                    set_install_failed(&sessions, id, &redraw, format!("{error:#}"));
                     return;
                 }
             };
@@ -131,20 +158,20 @@ impl InstallService {
             let session = match session {
                 Ok(session) => session,
                 Err(error) => {
-                    set_install_failed(&install, &redraw, format!("{error:#}"));
+                    set_install_failed(&sessions, id, &redraw, format!("{error:#}"));
                     return;
                 }
             };
 
             let mut progress = session.progress_receiver();
-            let monitor_state = install.clone();
+            let monitor_sessions = sessions.clone();
             let monitor_redraw = redraw.clone();
             let monitor = tokio::spawn(async move {
                 while progress.changed().await.is_ok() {
                     let next = progress.borrow_and_update().clone();
-                    if let Ok(mut state) = monitor_state.lock() {
-                        state.progress = next;
-                    }
+                    update_session(&monitor_sessions, id, |session| {
+                        session.progress = next;
+                    });
                     monitor_redraw.trigger();
                 }
             });
@@ -156,23 +183,47 @@ impl InstallService {
 
             match result {
                 Ok(_) => {
-                    if let Ok(mut state) = install.lock() {
-                        state.phase = InstallPhase::Done;
-                    }
+                    update_session(&sessions, id, |session| {
+                        session.phase = InstallPhase::Done;
+                    });
                     redraw.trigger();
                     let _ = instances.load();
                 }
-                Err(error) => set_install_failed(&install, &redraw, format!("{error:#}")),
+                Err(error) => set_install_failed(&sessions, id, &redraw, format!("{error:#}")),
             }
         });
 
-        true
+        id
+    }
+
+    fn insert_session(&self, session: InstallSession) {
+        self.sessions
+            .lock()
+            .expect("install sessions lock poisoned")
+            .insert(session.id, session);
     }
 }
 
-fn set_install_failed(install: &Arc<Mutex<InstallState>>, redraw: &Redraw, message: String) {
-    if let Ok(mut state) = install.lock() {
-        state.phase = InstallPhase::Failed(message);
+fn update_session(
+    sessions: &SessionStore,
+    id: InstallSessionId,
+    update: impl FnOnce(&mut InstallSession),
+) {
+    if let Ok(mut sessions) = sessions.lock() {
+        if let Some(session) = sessions.get_mut(&id) {
+            update(session);
+        }
     }
+}
+
+fn set_install_failed(
+    sessions: &SessionStore,
+    id: InstallSessionId,
+    redraw: &Redraw,
+    message: String,
+) {
+    update_session(sessions, id, |session| {
+        session.phase = InstallPhase::Failed(message);
+    });
     redraw.trigger();
 }

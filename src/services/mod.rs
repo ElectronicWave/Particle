@@ -19,7 +19,7 @@ mod ui;
 pub use account::{AccountService, AccountState, AuthorizationState};
 pub use catalog::CatalogService;
 pub use config::ConfigService;
-pub use install::{InstallPhase, InstallService, InstallState};
+pub use install::{InstallPhase, InstallService, InstallSession, InstallSessionId};
 pub use instance::InstanceService;
 pub use launch::{LaunchOutcome, LaunchService};
 pub use runtime::RuntimeService;
