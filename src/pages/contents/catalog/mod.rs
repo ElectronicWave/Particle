@@ -11,7 +11,7 @@ use elemental::{
 use ratail::KeyHint;
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
@@ -30,12 +30,12 @@ use crate::pages::route::Route;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::cycle::Cycle;
-use crate::widgets::tabs::TabBar;
+use crate::widgets::tabs::{TabBar, cycle_index, tab_step};
 
 fn catalog_hints() -> Vec<KeyHint> {
     vec![
-        KeyHint::new("←/→", t!("common.driver")),
-        KeyHint::new("Tab", t!("common.filter")),
+        KeyHint::new("TAB", t!("common.switch_tab")),
+        KeyHint::new("←/→", t!("common.filter")),
         KeyHint::new("↑/↓", t!("common.scroll")),
         KeyHint::new("ENTER", t!("common.select")),
         KeyHint::new("ESC", t!("common.return")),
@@ -44,6 +44,7 @@ fn catalog_hints() -> Vec<KeyHint> {
 
 fn loader_hints() -> Vec<KeyHint> {
     vec![
+        KeyHint::new("TAB", t!("common.switch_tab")),
         KeyHint::new("↑/↓", t!("common.scroll")),
         KeyHint::new("ENTER", t!("common.select")),
         KeyHint::new("ESC", t!("common.versions")),
@@ -139,26 +140,25 @@ impl Content for CatalogContent {
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
+        if matches!(
+            &self.screen,
+            Screen::GameVersions(_) | Screen::LoaderVersions(_)
+        ) && let Some(step) = tab_step(key)
+        {
+            let drivers = ctx.catalog().drivers();
+            let next = cycle_index(drivers.len(), self.driver, step);
+            self.switch_driver(ctx, next);
+            return ContentEvent::Handled;
+        }
+
         if matches!(&self.screen, Screen::GameVersions(_)) {
             match key.code {
-                KeyCode::Tab => {
-                    self.cycle_filter(!key.modifiers.contains(KeyModifiers::SHIFT));
-                    return ContentEvent::Handled;
-                }
-                KeyCode::BackTab => {
+                KeyCode::Left => {
                     self.cycle_filter(false);
                     return ContentEvent::Handled;
                 }
-                KeyCode::Left => {
-                    self.switch_driver(ctx, self.driver.saturating_sub(1));
-                    return ContentEvent::Handled;
-                }
                 KeyCode::Right => {
-                    let next = self
-                        .driver
-                        .saturating_add(1)
-                        .min(ctx.catalog().drivers().len().saturating_sub(1));
-                    self.switch_driver(ctx, next);
+                    self.cycle_filter(true);
                     return ContentEvent::Handled;
                 }
                 _ => {}

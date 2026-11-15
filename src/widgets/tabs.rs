@@ -1,5 +1,6 @@
 use ratatui::{
     buffer::Buffer,
+    crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
     style::{Modifier, Style},
     text::Span,
@@ -18,6 +19,31 @@ const DIVIDER_WIDTH: usize = 1;
 pub enum TabLevel {
     Primary,
     Secondary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabStep {
+    Next,
+    Previous,
+}
+
+pub fn tab_step(key: KeyEvent) -> Option<TabStep> {
+    match key.code {
+        KeyCode::Tab => Some(TabStep::Next),
+        KeyCode::BackTab => Some(TabStep::Previous),
+        _ => None,
+    }
+}
+
+pub fn cycle_index(len: usize, current: usize, step: TabStep) -> usize {
+    if len == 0 {
+        return 0;
+    }
+
+    match step {
+        TabStep::Next => (current + 1) % len,
+        TabStep::Previous => (current + len - 1) % len,
+    }
 }
 
 pub struct TabBar<'a> {

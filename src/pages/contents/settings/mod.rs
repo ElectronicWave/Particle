@@ -6,7 +6,7 @@ mod runtime;
 use ratail::KeyHint;
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyEvent,
     layout::{Constraint, Layout, Rect},
     style::Style,
     text::Line,
@@ -17,7 +17,7 @@ use crate::pages::content::{Content, ContentEvent};
 use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
-use crate::widgets::tabs::TabBar;
+use crate::widgets::tabs::{TabBar, cycle_index, tab_step};
 
 use pane::{PaneAreas, PaneEvent, SettingsPane};
 
@@ -84,18 +84,13 @@ impl Content for SettingsContent {
             return ContentEvent::Handled;
         }
 
-        match key.code {
-            KeyCode::Tab => {
-                self.active = (self.active + 1) % self.panes.len();
+        match tab_step(key) {
+            Some(step) => {
+                self.active = cycle_index(self.panes.len(), self.active, step);
                 self.panes[self.active].init(ctx);
                 ContentEvent::Handled
             }
-            KeyCode::BackTab => {
-                self.active = (self.active + self.panes.len() - 1) % self.panes.len();
-                self.panes[self.active].init(ctx);
-                ContentEvent::Handled
-            }
-            _ => ContentEvent::Ignored,
+            None => ContentEvent::Ignored,
         }
     }
 
