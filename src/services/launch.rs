@@ -7,9 +7,9 @@ use std::{
 
 use anyhow::Error;
 use elemental::{
-    core::auth::credential::CredentialKind,
+    core::auth::{credential::CredentialKind, texture::SkinModel},
     launcher::{
-        AccountStore, LaunchOptions,
+        AccountStore, LaunchOptions, SkinStore,
         offline_server::{OfflineProfile, OfflineServer},
     },
 };
@@ -39,6 +39,7 @@ pub struct LaunchService {
     accounts: Arc<AccountStore>,
     launcher: LauncherHandle,
     config: ConfigService,
+    skins: Arc<SkinStore>,
     launch: Task<LaunchOutcome, Error>,
     redraw: Redraw,
 }
@@ -48,12 +49,14 @@ impl LaunchService {
         accounts: Arc<AccountStore>,
         launcher: LauncherHandle,
         config: ConfigService,
+        skins: Arc<SkinStore>,
         redraw: Redraw,
     ) -> Self {
         Self {
             accounts,
             launcher,
             config,
+            skins,
             launch: Task::with_redraw(&redraw),
             redraw,
         }
@@ -67,6 +70,7 @@ impl LaunchService {
         let store = self.accounts.clone();
         let launcher = self.launcher.get();
         let config = self.config.snapshot();
+        let skins = self.skins.clone();
         let redraw = self.redraw.clone();
 
         self.launch.spawn_once(move || async move {
@@ -76,8 +80,14 @@ impl LaunchService {
             };
             let mut credential = account.credential().await?;
             let offline_server = if credential.kind == CredentialKind::Legacy {
-                let profile = OfflineProfile::new(credential.username.clone())
+                let selected = skins.selected(account.account_id()).await?;
+                let mut profile = OfflineProfile::new(credential.username.clone())
                     .with_uuid(credential.uuid.clone());
+                if let Some(selected) = selected {
+                    profile = profile
+                        .with_skin(selected.path)
+                        .with_skin_model(server_skin_model(selected.model));
+                }
                 let server = OfflineServer::builder()
                     .server_name("Particle".to_owned())
                     .profile(profile)
@@ -108,5 +118,12 @@ impl LaunchService {
 
             Ok(LaunchOutcome::Started(report))
         })
+    }
+}
+
+fn server_skin_model(model: SkinModel) -> elemental::launcher::offline_server::SkinModel {
+    match model {
+        SkinModel::Classic => elemental::launcher::offline_server::SkinModel::Classic,
+        SkinModel::Slim => elemental::launcher::offline_server::SkinModel::Slim,
     }
 }

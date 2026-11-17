@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use elemental::{launcher::AccountStore, shared::scope::Scope};
+use elemental::{
+    launcher::{AccountStore, SkinStore},
+    shared::scope::Scope,
+};
 use ratail::{Context, Redraw};
 
 use crate::app::config::{ConfigStore, LauncherConfig, build_launcher};
@@ -14,6 +17,7 @@ mod instance;
 mod launch;
 mod launcher;
 mod runtime;
+mod skin;
 mod ui;
 
 pub use account::{AccountService, AccountState, AuthorizationState};
@@ -23,6 +27,7 @@ pub use install::{InstallPhase, InstallService, InstallSession, InstallSessionId
 pub use instance::InstanceService;
 pub use launch::{LaunchOutcome, LaunchService};
 pub use runtime::RuntimeService;
+pub use skin::{SkinService, SkinState};
 pub use ui::UiService;
 
 use self::launcher::LauncherHandle;
@@ -34,6 +39,7 @@ pub struct Services {
     catalog: CatalogService,
     instances: InstanceService,
     runtimes: RuntimeService,
+    skins: SkinService,
     install: InstallService,
     launch: LaunchService,
 }
@@ -43,11 +49,13 @@ impl Services {
         let ui = UiService::new();
         let launcher = LauncherHandle::new(build_launcher(&config)?);
         let accounts = Arc::new(AccountStore::open(Scope::Config).await?);
+        let skin_store = Arc::new(SkinStore::open(Scope::Config).await?);
 
         let config_service =
             ConfigService::new(config, config_store, launcher.clone(), ui.redraw().clone());
         let instances = InstanceService::new(launcher.clone(), ui.redraw().clone());
         let runtimes = RuntimeService::new(config_service.clone(), ui.redraw().clone());
+        let skins = SkinService::new(skin_store.clone(), accounts.clone(), ui.redraw().clone());
         let install = InstallService::new(
             launcher.clone(),
             config_service.clone(),
@@ -58,6 +66,7 @@ impl Services {
             accounts.clone(),
             launcher,
             config_service.clone(),
+            skin_store,
             ui.redraw().clone(),
         );
         let account_service = AccountService::new(accounts, ui.redraw().clone());
@@ -70,6 +79,7 @@ impl Services {
             catalog: catalog_service,
             instances,
             runtimes,
+            skins,
             install,
             launch,
         })
@@ -97,6 +107,10 @@ impl Services {
 
     pub fn runtimes(&self) -> &RuntimeService {
         &self.runtimes
+    }
+
+    pub fn skins(&self) -> &SkinService {
+        &self.skins
     }
 
     pub fn install(&self) -> &InstallService {
