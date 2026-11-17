@@ -19,6 +19,7 @@ fn instance_hints() -> Vec<KeyHint> {
     vec![
         KeyHint::new("↑/↓", t!("common.browse")),
         KeyHint::new("ENTER", t!("common.launch")),
+        KeyHint::new("D", t!("common.remove")),
         KeyHint::new("R", t!("common.refresh")),
         KeyHint::new("ESC", t!("common.return")),
     ]
@@ -27,6 +28,7 @@ fn instance_hints() -> Vec<KeyHint> {
 #[derive(Debug, Default)]
 pub struct InstancesContent {
     list: ListState,
+    confirm_remove: Option<String>,
 }
 
 impl Content for InstancesContent {
@@ -66,10 +68,29 @@ impl Content for InstancesContent {
             (None, None) => render_loading(ctx, frame, body_area, t!("instances.loading").as_ref()),
         }
 
-        render_launch_status(ctx, frame, status_area, theme);
+        render_launch_status(
+            ctx,
+            self.confirm_remove.as_deref(),
+            frame,
+            status_area,
+            theme,
+        );
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
+        if let Some(instance_name) = self.confirm_remove.take() {
+            match key.code {
+                KeyCode::Enter => {
+                    ctx.instances().remove(instance_name);
+                }
+                KeyCode::Esc => {}
+                _ => {
+                    self.confirm_remove = Some(instance_name);
+                }
+            }
+            return ContentEvent::Handled;
+        }
+
         match key.code {
             KeyCode::Down => {
                 self.list.select_next();
@@ -89,12 +110,23 @@ impl Content for InstancesContent {
                 ctx.instances().load();
                 ContentEvent::Handled
             }
+            KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.confirm_remove = self.selected_instance(ctx);
+                ContentEvent::Handled
+            }
             _ => ContentEvent::Ignored,
         }
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
-        instance_hints()
+        if self.confirm_remove.is_some() {
+            vec![
+                KeyHint::new("ENTER", t!("common.remove")),
+                KeyHint::new("ESC", t!("common.cancel")),
+            ]
+        } else {
+            instance_hints()
+        }
     }
 }
 
@@ -132,6 +164,13 @@ impl InstancesContent {
         if instances.is_empty() {
             render_message(frame, area, t!("instances.empty").as_ref());
             return;
+        }
+        if self
+            .list
+            .selected()
+            .is_some_and(|selected| selected >= instances.len())
+        {
+            self.list.select(Some(instances.len() - 1));
         }
 
         let items = instances
@@ -203,7 +242,24 @@ fn render_failures(report: &InspectReport, frame: &mut Frame, area: Rect, theme:
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
-fn render_launch_status(ctx: &Services, frame: &mut Frame, area: Rect, theme: Theme) {
+fn render_launch_status(
+    ctx: &Services,
+    confirm_remove: Option<&str>,
+    frame: &mut Frame,
+    area: Rect,
+    theme: Theme,
+) {
+    if let Some(instance_name) = confirm_remove {
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                t!("instances.confirm_remove", instance = instance_name),
+                Style::new().fg(theme.warning),
+            )),
+            area,
+        );
+        return;
+    }
+
     let snapshot = ctx.launch().snapshot();
     let view = snapshot.view();
     let lines = if let Some(error) = view.error {

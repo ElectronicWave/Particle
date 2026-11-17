@@ -31,6 +31,14 @@ impl InstanceService {
         })
     }
 
+    pub fn remove(&self, instance_name: String) -> bool {
+        let launcher = self.launcher.get();
+        self.instances.spawn_once(move || async move {
+            launcher.remove_instance(instance_name).await?;
+            launcher.inspect_instances().await.map_err(Error::from)
+        })
+    }
+
     pub(super) fn reset_and_load(&self) -> bool {
         self.instances.reset();
         self.load()
