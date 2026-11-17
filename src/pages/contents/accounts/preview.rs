@@ -63,8 +63,8 @@ impl Popup for AccountPreviewPopup {
         }
     }
 
-    fn render(&self, frame: &mut Frame, _area: Rect, _anchor: Rect, theme: Theme) {
-        let popup = centered(frame.area());
+    fn render(&self, frame: &mut Frame, area: Rect, anchor: Rect, theme: Theme) {
+        let popup = anchored(area, anchor);
         frame.render_widget(Clear, popup);
 
         let block = Block::default()
@@ -152,12 +152,17 @@ fn source_label(source: PreviewSource) -> std::borrow::Cow<'static, str> {
     }
 }
 
-fn centered(area: Rect) -> Rect {
+fn anchored(area: Rect, anchor: Rect) -> Rect {
     let width = POPUP_WIDTH.min(area.width);
     let height = POPUP_HEIGHT.min(area.height);
+    let x = area.right().saturating_sub(width).max(area.x);
+    let y = anchor
+        .y
+        .min(area.bottom().saturating_sub(height))
+        .max(area.y);
     Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
+        x,
+        y,
         width,
         height,
     }

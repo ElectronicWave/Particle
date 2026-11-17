@@ -58,6 +58,12 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
 
     let snapshot = ctx.accounts().state().snapshot();
     let view = snapshot.view();
+    let mut preview_anchor = Rect {
+        x: area.x,
+        y: area.y,
+        width: 1,
+        height: 1,
+    };
     match (view.data, view.error) {
         (Some(state), Some(error)) => {
             let [error_area, accounts_area] =
@@ -68,8 +74,12 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
                 t!("common.error", error = error).as_ref(),
             );
             render_accounts(content, state, frame, accounts_area, theme);
+            preview_anchor = selected_anchor(content, state, accounts_area);
         }
-        (Some(state), None) => render_accounts(content, state, frame, list_area, theme),
+        (Some(state), None) => {
+            render_accounts(content, state, frame, list_area, theme);
+            preview_anchor = selected_anchor(content, state, list_area);
+        }
         (None, Some(error)) => {
             render_message(frame, list_area, t!("common.error", error = error).as_ref())
         }
@@ -92,13 +102,25 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
     }
 
     if let Some(preview) = &content.preview {
-        let anchor = Rect {
-            x: area.x,
-            y: footer_area.y,
-            width: 1,
-            height: 1,
-        };
-        preview.render(frame, area, anchor, theme);
+        preview.render(frame, area, preview_anchor, theme);
+    }
+}
+
+fn selected_anchor(content: &AccountsContent, state: &AccountState, area: Rect) -> Rect {
+    if state.accounts.is_empty() || area.height == 0 {
+        return area;
+    }
+    let selected = content
+        .list
+        .selected()
+        .unwrap_or_default()
+        .min(state.accounts.len() - 1);
+    let row = selected.saturating_sub(content.list.offset());
+    Rect {
+        x: area.x,
+        y: area.y + u16::try_from(row).unwrap_or_default().min(area.height - 1),
+        width: area.width,
+        height: 1,
     }
 }
 
