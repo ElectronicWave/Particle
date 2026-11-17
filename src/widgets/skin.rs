@@ -13,7 +13,6 @@ const VIEW_HEIGHT: u16 = 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkinView {
     Full,
-    #[allow(dead_code)]
     Head,
 }
 

@@ -17,8 +17,8 @@ use crate::widgets::popup::{Popup, PopupEvent};
 
 use super::view::skin_model_label;
 
-const POPUP_WIDTH: u16 = 24;
-const POPUP_HEIGHT: u16 = 21;
+const POPUP_WIDTH: u16 = 20;
+const POPUP_HEIGHT: u16 = 12;
 
 pub(super) struct AccountPreviewPopup {
     account_id: AccountId,

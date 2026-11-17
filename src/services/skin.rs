@@ -190,7 +190,7 @@ async fn profile_preview(
         .error_for_status()?
         .bytes()
         .await?;
-    let image = SkinPreview::from_png(&bytes, skin.model, SkinView::Full)?;
+    let image = SkinPreview::from_png(&bytes, skin.model, SkinView::Head)?;
 
     Ok(AccountPreview {
         image: Some(image),
@@ -208,7 +208,7 @@ async fn local_preview(
     };
 
     let bytes = tokio::fs::read(&selected.path).await?;
-    let image = SkinPreview::from_png(&bytes, selected.model, SkinView::Full)?;
+    let image = SkinPreview::from_png(&bytes, selected.model, SkinView::Head)?;
 
     Ok(Some(AccountPreview {
         image: Some(image),
