@@ -1,7 +1,18 @@
-use std::{path::PathBuf, sync::Arc, time::SystemTime};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
+    sync::Arc,
+    time::SystemTime,
+};
 
 use anyhow::Error;
-use elemental::launcher::{AccountStore, LaunchOptions};
+use elemental::{
+    core::auth::credential::CredentialKind,
+    launcher::{
+        AccountStore, LaunchOptions,
+        offline_server::{OfflineProfile, OfflineServer},
+    },
+};
 use ratail::{Redraw, Snapshot, Task};
 
 use crate::app::launch::{self, LaunchSession};
@@ -63,7 +74,19 @@ impl LaunchService {
             let Some(account) = store.selected().await? else {
                 return Ok(LaunchOutcome::NoAccount);
             };
-            let credential = account.credential().await?;
+            let mut credential = account.credential().await?;
+            let offline_server = if credential.kind == CredentialKind::Legacy {
+                let profile = OfflineProfile::new(credential.username.clone())
+                    .with_uuid(credential.uuid.clone());
+                let server = OfflineServer::builder()
+                    .server_name("Particle".to_owned())
+                    .profile(profile)
+                    .start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?;
+                credential = credential.with_auth_server(server.base_url.to_string());
+                Some(server)
+            } else {
+                None
+            };
             let Some(instance) = launcher.inspect_instance(instance_name.clone()).await? else {
                 return Ok(LaunchOutcome::InstanceNotFound(instance_name));
             };
@@ -81,7 +104,7 @@ impl LaunchService {
                 log_path: session.log_path.clone(),
                 started_at: session.started_at,
             };
-            launch::supervise(child, session, redraw);
+            launch::supervise(child, session, redraw, offline_server);
 
             Ok(LaunchOutcome::Started(report))
         })

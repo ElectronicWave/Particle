@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use elemental::launcher::LaunchCommand;
+use elemental::launcher::{LaunchCommand, offline_server::RunningOfflineServer};
 use process_wrap::tokio::{ChildWrapper, CommandWrap};
 use ratail::Redraw;
 
@@ -97,9 +97,15 @@ impl LaunchSession {
     }
 }
 
-pub fn supervise(mut child: Box<dyn ChildWrapper>, session: LaunchSession, redraw: Redraw) {
+pub fn supervise(
+    mut child: Box<dyn ChildWrapper>,
+    session: LaunchSession,
+    redraw: Redraw,
+    offline_server: Option<RunningOfflineServer>,
+) {
     tokio::spawn(async move {
         let status = child.wait().await;
+        drop(offline_server);
         let _ = append_footer(&session.log_path, &status);
         redraw.trigger();
     });
