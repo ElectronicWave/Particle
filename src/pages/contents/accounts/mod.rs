@@ -196,8 +196,23 @@ impl Content for AccountsContent {
             }
 
             match key.code {
-                KeyCode::Down => skin_mode.list.select_next(),
-                KeyCode::Up => skin_mode.list.select_previous(),
+                KeyCode::Down => step_selection(
+                    &mut skin_mode.list,
+                    skin_count(ctx, skin_mode.account_id),
+                    true,
+                ),
+                KeyCode::Up => {
+                    step_selection(
+                        &mut skin_mode.list,
+                        skin_count(ctx, skin_mode.account_id),
+                        false,
+                    );
+                }
+                KeyCode::Home => skin_mode.list.select(Some(0)),
+                KeyCode::End => {
+                    let last = skin_count(ctx, skin_mode.account_id).saturating_sub(1);
+                    skin_mode.list.select(Some(last));
+                }
                 KeyCode::Char('m') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     skin_mode.model = match skin_mode.model {
                         SkinModel::Classic => SkinModel::Slim,
@@ -353,11 +368,22 @@ impl AccountsContent {
     fn on_list_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
         match key.code {
             KeyCode::Down => {
-                self.list.select_next();
+                let count = account_count(ctx);
+                step_selection(&mut self.list, count, true);
                 ContentEvent::Handled
             }
             KeyCode::Up => {
-                self.list.select_previous();
+                let count = account_count(ctx);
+                step_selection(&mut self.list, count, false);
+                ContentEvent::Handled
+            }
+            KeyCode::Home => {
+                self.list.select(Some(0));
+                ContentEvent::Handled
+            }
+            KeyCode::End => {
+                let last = account_count(ctx).saturating_sub(1);
+                self.list.select(Some(last));
                 ContentEvent::Handled
             }
             KeyCode::Enter => {
@@ -444,6 +470,35 @@ fn selected_skin(ctx: &Services, skin_mode: &SkinMode) -> Option<SkinId> {
     }
     let selected = skin_mode.list.selected()?;
     state.entries.get(selected).map(|entry| entry.asset.id)
+}
+
+fn account_count(ctx: &Services) -> usize {
+    let snapshot = ctx.accounts().state().snapshot();
+    snapshot.view().data.map_or(0, |state| state.accounts.len())
+}
+
+fn skin_count(ctx: &Services, account_id: AccountId) -> usize {
+    let snapshot = ctx.skins().snapshot();
+    snapshot
+        .view()
+        .data
+        .filter(|state| state.account_id == account_id)
+        .map_or(0, |state| state.entries.len())
+}
+
+/// Moves the selection by one row, wrapping at both ends.
+fn step_selection(list: &mut ListState, count: usize, forward: bool) {
+    if count == 0 {
+        list.select(None);
+        return;
+    }
+    let current = list.selected().unwrap_or_default().min(count - 1);
+    let next = if forward {
+        (current + 1) % count
+    } else {
+        (current + count - 1) % count
+    };
+    list.select(Some(next));
 }
 
 fn default_skin_name(path: &Path) -> String {
