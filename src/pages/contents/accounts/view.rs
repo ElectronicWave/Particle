@@ -90,6 +90,16 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
         };
         popup.render(frame, area, anchor, theme);
     }
+
+    if let Some(preview) = &content.preview {
+        let anchor = Rect {
+            x: area.x,
+            y: footer_area.y,
+            width: 1,
+            height: 1,
+        };
+        preview.render(frame, area, anchor, theme);
+    }
 }
 
 fn render_authorization(ctx: &Services, frame: &mut Frame, area: Rect, theme: Theme) -> bool {
@@ -428,7 +438,9 @@ fn render_skin_list(
     frame.render_stateful_widget(list, area, &mut skin_mode.list);
 }
 
-fn skin_model_label(model: elemental::core::auth::texture::SkinModel) -> Cow<'static, str> {
+pub(super) fn skin_model_label(
+    model: elemental::core::auth::texture::SkinModel,
+) -> Cow<'static, str> {
     match model {
         elemental::core::auth::texture::SkinModel::Classic => {
             t!("accounts.skin_classic")

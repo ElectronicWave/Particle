@@ -2028,6 +2028,7 @@ dependencies = [
  "process-wrap",
  "ratail",
  "ratatui",
+ "reqwest",
  "serde",
  "sys-locale",
  "tokio",
