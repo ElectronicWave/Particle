@@ -23,7 +23,7 @@ mod ui;
 pub use account::{AccountService, AccountState, AccountSummary, AuthorizationState};
 pub use catalog::CatalogService;
 pub use config::ConfigService;
-pub use install::{InstallPhase, InstallService, InstallSession, InstallSessionId};
+pub use install::{InstallPhase, InstallService, InstallSession};
 pub use instance::InstanceService;
 pub use launch::{LaunchOutcome, LaunchService};
 pub use runtime::RuntimeService;

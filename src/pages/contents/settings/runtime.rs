@@ -20,13 +20,12 @@ use crate::widgets::{
     cycle::Cycle,
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode},
+    list::ListSelection,
     popup::{Popup, PopupEvent},
     spinner,
 };
 
 use super::pane::{self, PaneAreas, PaneEvent, RowHint, SettingsPane};
-
-const FIELD_COUNT: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeChoice {
@@ -37,7 +36,7 @@ enum RuntimeChoice {
 
 #[derive(Debug, Default)]
 pub(super) struct RuntimePane {
-    selected: usize,
+    selected: ListSelection,
     runtime_dropdown: Option<Dropdown<RuntimeChoice>>,
     picker: Option<FilePicker>,
     custom_runtime_paths: Vec<PathBuf>,
@@ -67,17 +66,23 @@ impl SettingsPane for RuntimePane {
             .unwrap_or(&[]);
         let java = choice_label(&current_choice(&config), runtimes);
         let rows = vec![
-            pane::row(0, self.selected, &t!("settings.java_runtime"), java, theme),
+            pane::row(
+                0,
+                self.selected.index(),
+                &t!("settings.java_runtime"),
+                java,
+                theme,
+            ),
             pane::row(
                 1,
-                self.selected,
+                self.selected.index(),
                 &t!("settings.validation"),
                 config.runtime_validation.label().into_owned(),
                 theme,
             ),
         ];
 
-        pane::render_rows(frame, areas.body, rows, self.selected, theme);
+        pane::render_rows(frame, areas.body, rows, &mut self.selected, theme);
         let anchor = pane::row_anchor(areas.body);
         if let Some(popup) = &self.runtime_dropdown {
             popup.render(frame, areas.full, anchor, theme);
@@ -138,12 +143,8 @@ impl SettingsPane for RuntimePane {
         }
 
         match key.code {
-            KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
-                PaneEvent::Handled
-            }
-            KeyCode::Down => {
-                self.selected = self.selected.saturating_add(1).min(FIELD_COUNT - 1);
+            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
+                self.selected.handle_key(key.code);
                 PaneEvent::Handled
             }
             KeyCode::Enter => {
@@ -182,7 +183,7 @@ impl SettingsPane for RuntimePane {
             return hints;
         }
 
-        let row = if self.selected == 0 {
+        let row = if self.selected.index() == 0 {
             RowHint::Select
         } else {
             RowHint::Toggle
@@ -255,7 +256,7 @@ impl SettingsPane for RuntimePane {
 
 impl RuntimePane {
     fn activate(&mut self, ctx: &Services) {
-        match self.selected {
+        match self.selected.index() {
             0 => self.open_runtime_dropdown(ctx),
             1 => {
                 let mut config = ctx.config().snapshot();
@@ -267,7 +268,7 @@ impl RuntimePane {
     }
 
     fn adjust(&mut self, ctx: &Services, forward: bool) {
-        if self.selected != 0 {
+        if self.selected.index() != 0 {
             return;
         }
 

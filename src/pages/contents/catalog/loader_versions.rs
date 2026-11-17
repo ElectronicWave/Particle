@@ -11,13 +11,14 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, Paragraph},
 };
 
 use super::ScreenAction;
 use crate::pages::content::{render_loading, render_message};
 use crate::services::Services;
 use crate::theme::Theme;
+use crate::widgets::list::ListSelection;
 
 #[derive(Clone, Debug)]
 pub(super) struct LoaderSelection {
@@ -28,14 +29,14 @@ pub(super) struct LoaderSelection {
 #[derive(Debug)]
 pub(super) struct LoaderVersionsScreen {
     game: MinecraftVersionId,
-    loaders: ListState,
+    loaders: ListSelection,
 }
 
 impl LoaderVersionsScreen {
     pub(super) fn new(game: MinecraftVersionId) -> Self {
         Self {
             game,
-            loaders: ListState::default().with_selected(Some(0)),
+            loaders: ListSelection::clamp(),
         }
     }
 
@@ -78,12 +79,8 @@ impl LoaderVersionsScreen {
     ) -> ScreenAction {
         match key.code {
             KeyCode::Esc => ScreenAction::Back,
-            KeyCode::Down => {
-                self.loaders.select_next();
-                ScreenAction::Handled
-            }
-            KeyCode::Up => {
-                self.loaders.select_previous();
+            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
+                self.loaders.handle_key(key.code);
                 ScreenAction::Handled
             }
             KeyCode::Enter => match self.selected_loader(ctx, driver) {
@@ -124,7 +121,7 @@ impl LoaderVersionsScreen {
             .collect::<Vec<ListItem>>();
         let list = List::new(items).highlight_style(theme.selection_style());
 
-        frame.render_stateful_widget(list, area, &mut self.loaders);
+        frame.render_stateful_widget(list, area, self.loaders.state_mut());
     }
 
     fn selected_loader(&self, ctx: &Services, driver: DriverDescriptor) -> Option<LoaderVersionId> {

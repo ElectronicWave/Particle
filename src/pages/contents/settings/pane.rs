@@ -7,13 +7,14 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState},
+    widgets::{List, ListItem},
 };
 use unicode_width::UnicodeWidthStr;
 
 use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
+use crate::widgets::list::ListSelection;
 
 pub(super) const LABEL_WIDTH: usize = 20;
 
@@ -107,7 +108,7 @@ pub(super) fn render_rows(
     frame: &mut Frame,
     area: Rect,
     rows: Vec<Line<'static>>,
-    selected: usize,
+    selected: &mut ListSelection,
     theme: Theme,
 ) {
     let items = rows
@@ -115,8 +116,7 @@ pub(super) fn render_rows(
         .map(ListItem::new)
         .collect::<Vec<ListItem>>();
     let list = List::new(items).highlight_style(theme.selection_style());
-    let mut state = ListState::default().with_selected(Some(selected));
-    frame.render_stateful_widget(list, area, &mut state);
+    frame.render_stateful_widget(list, area, selected.state_mut());
 }
 
 pub(super) fn row_anchor(area: Rect) -> Rect {

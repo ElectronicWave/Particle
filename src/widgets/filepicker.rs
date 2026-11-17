@@ -16,6 +16,7 @@ use ratatui::{
 
 use crate::t;
 use crate::theme::Theme;
+use crate::widgets::list::ListSelection;
 use crate::widgets::popup::{Popup, PopupEvent};
 
 const MIN_WIDTH: u16 = 48;
@@ -50,7 +51,7 @@ pub struct FilePicker {
     mode: FilePickerMode,
     directory: PathBuf,
     entries: Vec<Entry>,
-    selected: usize,
+    selected: ListSelection,
     error: Option<String>,
 }
 
@@ -62,7 +63,7 @@ impl FilePicker {
             mode,
             directory: directory.clone(),
             entries: Vec::new(),
-            selected: 0,
+            selected: ListSelection::wrap(0),
             error: None,
         };
         picker.load(directory);
@@ -74,28 +75,15 @@ impl FilePicker {
             Ok(entries) => {
                 self.directory = directory;
                 self.entries = entries;
-                self.selected = 0;
+                self.selected.set_len(self.entries.len());
                 self.error = None;
             }
             Err(error) => self.error = Some(format!("{error:#}")),
         }
     }
 
-    fn move_selection(&mut self, forward: bool) {
-        if self.entries.is_empty() {
-            return;
-        }
-        self.selected = if forward {
-            (self.selected + 1) % self.entries.len()
-        } else if self.selected == 0 {
-            self.entries.len() - 1
-        } else {
-            self.selected - 1
-        };
-    }
-
     fn activate(&mut self) -> PopupEvent<PathBuf> {
-        let Some(entry) = self.entries.get(self.selected).cloned() else {
+        let Some(entry) = self.entries.get(self.selected.index()).cloned() else {
             return PopupEvent::Handled;
         };
 
@@ -116,7 +104,7 @@ impl FilePicker {
             FilePickerMode::Directory => PopupEvent::Completed(self.directory.clone()),
             FilePickerMode::File => self
                 .entries
-                .get(self.selected)
+                .get(self.selected.index())
                 .filter(|entry| entry.kind == EntryKind::File)
                 .map(|entry| PopupEvent::Completed(entry.path.clone()))
                 .unwrap_or(PopupEvent::Handled),
@@ -142,20 +130,8 @@ impl Popup for FilePicker {
         }
 
         match key.code {
-            KeyCode::Up => {
-                self.move_selection(false);
-                PopupEvent::Handled
-            }
-            KeyCode::Down => {
-                self.move_selection(true);
-                PopupEvent::Handled
-            }
-            KeyCode::Home => {
-                self.selected = 0;
-                PopupEvent::Handled
-            }
-            KeyCode::End => {
-                self.selected = self.entries.len().saturating_sub(1);
+            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
+                self.selected.handle_key(key.code);
                 PopupEvent::Handled
             }
             KeyCode::Left => {
@@ -207,7 +183,10 @@ impl Popup for FilePicker {
             .highlight_symbol("▸ ");
 
         let visible = list_area.height as usize;
-        let selected = self.selected.min(self.entries.len().saturating_sub(1));
+        let selected = self
+            .selected
+            .index()
+            .min(self.entries.len().saturating_sub(1));
         let offset = selected.saturating_add(1).saturating_sub(visible);
         let mut list_state = ListState::default()
             .with_selected((!self.entries.is_empty()).then_some(selected))

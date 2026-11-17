@@ -10,6 +10,7 @@ use ratatui::{
 use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
+use crate::widgets::list::ListSelection;
 
 use super::pane::{self, PaneAreas, PaneEvent, RowHint, SettingsPane};
 
@@ -18,6 +19,7 @@ const MAX_PARALLELISM: usize = 64;
 
 #[derive(Debug, Default)]
 pub(super) struct DownloadsPane {
+    selection: ListSelection,
     error: Option<String>,
 }
 
@@ -35,7 +37,7 @@ impl SettingsPane for DownloadsPane {
             config.download_parallelism.to_string(),
             theme,
         )];
-        pane::render_rows(frame, areas.body, rows, 0, theme);
+        pane::render_rows(frame, areas.body, rows, &mut self.selection, theme);
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {

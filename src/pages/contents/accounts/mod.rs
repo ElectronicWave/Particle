@@ -10,7 +10,6 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
     layout::Rect,
-    widgets::ListState,
 };
 
 use crate::app::config::microsoft_client_id;
@@ -19,6 +18,7 @@ use crate::services::Services;
 use crate::widgets::{
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode},
+    list::ListSelection,
     png::PngImage,
     popup::{Popup, PopupEvent},
     skin::SkinView,
@@ -83,7 +83,7 @@ enum AuthorizerKind {
 #[derive(Debug)]
 struct SkinMode {
     account_id: AccountId,
-    list: ListState,
+    list: ListSelection,
     model: SkinModel,
     view: SkinView,
     picker: Option<FilePicker>,
@@ -112,7 +112,7 @@ pub struct AccountsContent {
     authorizer: Option<Dropdown<AuthorizerKind>>,
     skins: Option<SkinMode>,
     preview_account: Option<AccountId>,
-    list: ListState,
+    list: ListSelection,
     error: Option<String>,
 }
 
@@ -123,7 +123,7 @@ impl Default for AccountsContent {
             authorizer: None,
             skins: None,
             preview_account: None,
-            list: ListState::default().with_selected(Some(0)),
+            list: ListSelection::wrap(0),
             error: None,
         }
     }
@@ -196,22 +196,8 @@ impl Content for AccountsContent {
             }
 
             match key.code {
-                KeyCode::Down => step_selection(
-                    &mut skin_mode.list,
-                    skin_count(ctx, skin_mode.account_id),
-                    true,
-                ),
-                KeyCode::Up => {
-                    step_selection(
-                        &mut skin_mode.list,
-                        skin_count(ctx, skin_mode.account_id),
-                        false,
-                    );
-                }
-                KeyCode::Home => skin_mode.list.select(Some(0)),
-                KeyCode::End => {
-                    let last = skin_count(ctx, skin_mode.account_id).saturating_sub(1);
-                    skin_mode.list.select(Some(last));
+                KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
+                    skin_mode.list.handle_key(key.code);
                 }
                 KeyCode::Char('m') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     skin_mode.model = match skin_mode.model {
@@ -367,23 +353,8 @@ impl AccountsContent {
 
     fn on_list_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
         match key.code {
-            KeyCode::Down => {
-                let count = account_count(ctx);
-                step_selection(&mut self.list, count, true);
-                ContentEvent::Handled
-            }
-            KeyCode::Up => {
-                let count = account_count(ctx);
-                step_selection(&mut self.list, count, false);
-                ContentEvent::Handled
-            }
-            KeyCode::Home => {
-                self.list.select(Some(0));
-                ContentEvent::Handled
-            }
-            KeyCode::End => {
-                let last = account_count(ctx).saturating_sub(1);
-                self.list.select(Some(last));
+            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
+                self.list.handle_key(key.code);
                 ContentEvent::Handled
             }
             KeyCode::Enter => {
@@ -436,7 +407,7 @@ impl AccountsContent {
                     ctx.skins().load(account_id);
                     self.skins = Some(SkinMode {
                         account_id,
-                        list: ListState::default().with_selected(Some(0)),
+                        list: ListSelection::wrap(0),
                         model,
                         view: SkinView::Full,
                         picker: None,
@@ -470,35 +441,6 @@ fn selected_skin(ctx: &Services, skin_mode: &SkinMode) -> Option<SkinId> {
     }
     let selected = skin_mode.list.selected()?;
     state.entries.get(selected).map(|entry| entry.asset.id)
-}
-
-fn account_count(ctx: &Services) -> usize {
-    let snapshot = ctx.accounts().state().snapshot();
-    snapshot.view().data.map_or(0, |state| state.accounts.len())
-}
-
-fn skin_count(ctx: &Services, account_id: AccountId) -> usize {
-    let snapshot = ctx.skins().snapshot();
-    snapshot
-        .view()
-        .data
-        .filter(|state| state.account_id == account_id)
-        .map_or(0, |state| state.entries.len())
-}
-
-/// Moves the selection by one row, wrapping at both ends.
-fn step_selection(list: &mut ListState, count: usize, forward: bool) {
-    if count == 0 {
-        list.select(None);
-        return;
-    }
-    let current = list.selected().unwrap_or_default().min(count - 1);
-    let next = if forward {
-        (current + 1) % count
-    } else {
-        (current + count - 1) % count
-    };
-    list.select(Some(next));
 }
 
 fn default_skin_name(path: &Path) -> String {

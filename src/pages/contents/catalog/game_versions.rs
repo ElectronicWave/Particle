@@ -8,30 +8,31 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Layout, Rect},
-    widgets::{List, ListItem, ListState},
+    widgets::{List, ListItem},
 };
 
 use super::{ScreenAction, filter::VersionFilter};
 use crate::pages::content::{render_loading, render_message};
 use crate::services::Services;
 use crate::theme::Theme;
+use crate::widgets::list::ListSelection;
 
 #[derive(Debug)]
 pub(super) struct GameVersionsScreen {
-    versions: ListState,
+    versions: ListSelection,
 }
 
 impl Default for GameVersionsScreen {
     fn default() -> Self {
         Self {
-            versions: ListState::default().with_selected(Some(0)),
+            versions: ListSelection::clamp(),
         }
     }
 }
 
 impl GameVersionsScreen {
     pub(super) fn reset(&mut self) {
-        self.versions = ListState::default().with_selected(Some(0));
+        self.versions = ListSelection::clamp();
     }
 
     pub(super) fn render(
@@ -69,12 +70,8 @@ impl GameVersionsScreen {
         filter: VersionFilter,
     ) -> ScreenAction {
         match key.code {
-            KeyCode::Down => {
-                self.versions.select_next();
-                ScreenAction::Handled
-            }
-            KeyCode::Up => {
-                self.versions.select_previous();
+            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
+                self.versions.handle_key(key.code);
                 ScreenAction::Handled
             }
             KeyCode::Enter => match self.selected_game(ctx, driver, filter) {
@@ -113,7 +110,7 @@ impl GameVersionsScreen {
             .collect::<Vec<ListItem>>();
         let list = List::new(items).highlight_style(theme.selection_style());
 
-        frame.render_stateful_widget(list, area, &mut self.versions);
+        frame.render_stateful_widget(list, area, self.versions.state_mut());
     }
 
     fn selected_game(

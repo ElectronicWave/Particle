@@ -7,11 +7,11 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
-    widgets::ListState,
 };
 
 use crate::pages::content::{Content, ContentEvent};
-use crate::services::{InstallSession, InstallSessionId, Services};
+use crate::services::Services;
+use crate::widgets::list::ListSelection;
 
 fn download_hints() -> Vec<KeyHint> {
     vec![
@@ -23,8 +23,7 @@ fn download_hints() -> Vec<KeyHint> {
 
 #[derive(Debug, Default)]
 pub struct DownloadsContent {
-    selected: Option<InstallSessionId>,
-    list: ListState,
+    list: ListSelection,
 }
 
 impl Content for DownloadsContent {
@@ -34,27 +33,17 @@ impl Content for DownloadsContent {
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
         match key.code {
-            KeyCode::Down => {
-                self.move_selection(ctx, 1);
-                ContentEvent::Handled
-            }
-            KeyCode::Up => {
-                self.move_selection(ctx, -1);
+            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
+                self.list.handle_key(key.code);
                 ContentEvent::Handled
             }
             KeyCode::Enter => {
                 let sessions = ctx.install().sessions();
-                self.ensure_selection(&sessions);
-                let can_dismiss = self.selected.is_some_and(|id| {
-                    sessions
-                        .iter()
-                        .any(|session| session.id == id && session.phase.can_dismiss())
-                });
-                if can_dismiss {
-                    if let Some(id) = self.selected {
-                        ctx.install().dismiss(id);
-                        self.selected = None;
-                    }
+                if let Some(session) = self.list.selected().and_then(|index| sessions.get(index))
+                    && session.phase.can_dismiss()
+                {
+                    ctx.install().dismiss(session.id);
+                    self.list.select(Some(0));
                 }
                 ContentEvent::Handled
             }
@@ -64,36 +53,5 @@ impl Content for DownloadsContent {
 
     fn keybindings(&self) -> Vec<KeyHint> {
         download_hints()
-    }
-}
-
-impl DownloadsContent {
-    fn ensure_selection(&mut self, sessions: &[InstallSession]) {
-        let selected_exists = self
-            .selected
-            .is_some_and(|id| sessions.iter().any(|session| session.id == id));
-        if !selected_exists {
-            self.selected = sessions.first().map(|session| session.id);
-        }
-    }
-
-    fn move_selection(&mut self, ctx: &Services, direction: isize) {
-        let sessions = ctx.install().sessions();
-        self.ensure_selection(&sessions);
-        let Some(current) = self
-            .selected
-            .and_then(|id| sessions.iter().position(|session| session.id == id))
-        else {
-            return;
-        };
-
-        let next = if direction < 0 {
-            current.saturating_sub(1)
-        } else {
-            current
-                .saturating_add(1)
-                .min(sessions.len().saturating_sub(1))
-        };
-        self.selected = Some(sessions[next].id);
     }
 }

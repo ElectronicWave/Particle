@@ -7,13 +7,14 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{List, ListItem, Paragraph, Wrap},
 };
 
 use crate::drivers;
 use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
 use crate::services::{LaunchOutcome, Services};
 use crate::theme::Theme;
+use crate::widgets::list::ListSelection;
 
 fn instance_hints() -> Vec<KeyHint> {
     vec![
@@ -27,7 +28,7 @@ fn instance_hints() -> Vec<KeyHint> {
 
 #[derive(Debug, Default)]
 pub struct InstancesContent {
-    list: ListState,
+    list: ListSelection,
     confirm_remove: Option<String>,
 }
 
@@ -37,10 +38,6 @@ impl Content for InstancesContent {
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        if self.list.selected().is_none() {
-            self.list.select(Some(0));
-        }
-
         let theme = ctx.ui().theme();
         let [body_area, status_area] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
@@ -92,12 +89,8 @@ impl Content for InstancesContent {
         }
 
         match key.code {
-            KeyCode::Down => {
-                self.list.select_next();
-                ContentEvent::Handled
-            }
-            KeyCode::Up => {
-                self.list.select_previous();
+            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
+                self.list.handle_key(key.code);
                 ContentEvent::Handled
             }
             KeyCode::Enter => {
@@ -165,13 +158,6 @@ impl InstancesContent {
             render_message(frame, area, t!("instances.empty").as_ref());
             return;
         }
-        if self
-            .list
-            .selected()
-            .is_some_and(|selected| selected >= instances.len())
-        {
-            self.list.select(Some(instances.len() - 1));
-        }
 
         let items = instances
             .iter()
@@ -198,7 +184,7 @@ impl InstancesContent {
             .collect::<Vec<ListItem>>();
         let list = List::new(items).highlight_style(theme.selection_style());
 
-        frame.render_stateful_widget(list, area, &mut self.list);
+        frame.render_stateful_widget(list, area, self.list.state_mut());
     }
 
     fn selected_instance(&self, ctx: &Services) -> Option<String> {

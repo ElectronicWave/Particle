@@ -16,6 +16,7 @@ use crate::widgets::{
     cycle::Cycle,
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode},
+    list::ListSelection,
     popup::{Popup, PopupEvent},
     text_edit::{EditEvent, TextEdit},
 };
@@ -24,7 +25,7 @@ use super::pane::{self, PaneAreas, PaneEvent, RowHint, SettingsPane};
 
 #[derive(Debug, Default)]
 pub(super) struct GeneralPane {
-    selected: usize,
+    selected: ListSelection,
     edit: Option<TextEdit>,
     language: Option<Dropdown<String>>,
     picker: Option<FilePicker>,
@@ -46,20 +47,20 @@ impl SettingsPane for GeneralPane {
         let rows = vec![
             pane::row(
                 0,
-                self.selected,
+                self.selected.index(),
                 &t!("settings.language"),
                 current_language_name(),
                 theme,
             ),
             pane::row(
                 1,
-                self.selected,
+                self.selected.index(),
                 &t!("settings.storage_root"),
                 storage_root,
                 theme,
             ),
         ];
-        pane::render_rows(frame, areas.body, rows, self.selected, theme);
+        pane::render_rows(frame, areas.body, rows, &mut self.selected, theme);
         let anchor = pane::row_anchor(areas.body);
         if let Some(popup) = &self.language {
             popup.render(frame, areas.full, anchor, theme);
@@ -108,12 +109,8 @@ impl SettingsPane for GeneralPane {
         }
 
         match key.code {
-            KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
-                PaneEvent::Handled
-            }
-            KeyCode::Down => {
-                self.selected = self.selected.saturating_add(1).min(FIELD_COUNT - 1);
+            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
+                self.selected.handle_key(key.code);
                 PaneEvent::Handled
             }
             KeyCode::Enter => {
@@ -125,7 +122,7 @@ impl SettingsPane for GeneralPane {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                if self.selected == 1 {
+                if self.selected.index() == 1 {
                     self.start_path_edit(&ctx.config().snapshot());
                     PaneEvent::Handled
                 } else {
@@ -171,7 +168,7 @@ impl SettingsPane for GeneralPane {
 
 impl GeneralPane {
     fn activate(&mut self, ctx: &Services) {
-        match self.selected {
+        match self.selected.index() {
             0 => self.open_language(),
             1 => self.open_picker(ctx.config().snapshot().storage_root),
             _ => {}
@@ -179,7 +176,7 @@ impl GeneralPane {
     }
 
     fn adjust(&mut self, ctx: &Services, forward: bool) {
-        if self.selected != 0 {
+        if self.selected.index() != 0 {
             return;
         }
 
@@ -280,14 +277,12 @@ impl GeneralPane {
     }
 
     fn row_hint(&self) -> RowHint {
-        match self.selected {
+        match self.selected.index() {
             0 => RowHint::Select,
             _ => RowHint::Browse,
         }
     }
 }
-
-const FIELD_COUNT: usize = 2;
 
 fn current_language_name() -> String {
     let current = i18n::current_locale();

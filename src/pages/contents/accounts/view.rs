@@ -151,6 +151,7 @@ fn render_accounts(
     area: Rect,
     theme: Theme,
 ) {
+    content.list.set_len(state.accounts.len());
     if state.accounts.is_empty() {
         render_message(frame, area, t!("accounts.empty").as_ref());
         return;
@@ -181,7 +182,7 @@ fn render_accounts(
         .collect::<Vec<ListItem>>();
 
     let list = List::new(items).highlight_style(theme.selection_style());
-    frame.render_stateful_widget(list, area, &mut content.list);
+    frame.render_stateful_widget(list, area, content.list.state_mut());
 }
 
 fn render_account_preview(
@@ -497,16 +498,10 @@ fn render_skin_list(
     area: Rect,
     theme: Theme,
 ) {
+    skin_mode.list.set_len(state.entries.len());
     if state.entries.is_empty() {
         render_message(frame, area, t!("accounts.skins_empty").as_ref());
         return;
-    }
-    if skin_mode
-        .list
-        .selected()
-        .is_some_and(|selected| selected >= state.entries.len())
-    {
-        skin_mode.list.select(Some(state.entries.len() - 1));
     }
 
     let items = state
@@ -531,7 +526,7 @@ fn render_skin_list(
         })
         .collect::<Vec<Line>>();
     let list = List::new(items).highlight_style(theme.selection_style());
-    frame.render_stateful_widget(list, area, &mut skin_mode.list);
+    frame.render_stateful_widget(list, area, skin_mode.list.state_mut());
 }
 
 pub(super) fn skin_model_label(

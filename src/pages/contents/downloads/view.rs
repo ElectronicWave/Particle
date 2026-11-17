@@ -18,7 +18,6 @@ pub(super) fn render(
 ) {
     let theme = ctx.ui().theme();
     let sessions = ctx.install().sessions();
-    content.ensure_selection(&sessions);
 
     let [title_area, body_area] =
         Layout::vertical([Constraint::Length(2), Constraint::Fill(1)]).areas(area);
@@ -50,10 +49,7 @@ fn render_sessions(
     area: Rect,
     theme: Theme,
 ) {
-    let selected = content
-        .selected
-        .and_then(|id| sessions.iter().position(|session| session.id == id))
-        .unwrap_or(0);
+    let selected = content.list.index().min(sessions.len() - 1);
 
     if area.width >= 72 {
         let [list_area, _gap, detail_area] = Layout::horizontal([
@@ -62,14 +58,7 @@ fn render_sessions(
             Constraint::Fill(1),
         ])
         .areas(area);
-        render_session_list(
-            sessions,
-            selected,
-            frame,
-            list_area,
-            theme,
-            &mut content.list,
-        );
+        render_session_list(sessions, frame, list_area, theme, content.list.state_mut());
         detail::render(&sessions[selected], frame, detail_area, theme);
     } else {
         let list_height = sessions.len().clamp(1, 6) as u16;
@@ -79,21 +68,13 @@ fn render_sessions(
             Constraint::Fill(1),
         ])
         .areas(area);
-        render_session_list(
-            sessions,
-            selected,
-            frame,
-            list_area,
-            theme,
-            &mut content.list,
-        );
+        render_session_list(sessions, frame, list_area, theme, content.list.state_mut());
         detail::render(&sessions[selected], frame, detail_area, theme);
     }
 }
 
 fn render_session_list(
     sessions: &[InstallSession],
-    selected: usize,
     frame: &mut Frame,
     area: Rect,
     theme: Theme,
@@ -124,7 +105,6 @@ fn render_session_list(
         })
         .collect::<Vec<ListItem>>();
     let list = List::new(items).highlight_style(theme.selection_style());
-    state.select(Some(selected));
 
     frame.render_stateful_widget(list, area, state);
 }

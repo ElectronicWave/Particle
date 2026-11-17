@@ -10,6 +10,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::t;
 use crate::theme::Theme;
+use crate::widgets::list::ListSelection;
 use crate::widgets::popup::{Popup, PopupEvent};
 
 const MIN_WIDTH: u16 = 16;
@@ -18,17 +19,12 @@ const HIGHLIGHT_WIDTH: u16 = 2;
 const VERTICAL_PADDING: u16 = 2;
 const HIGHLIGHT_SYMBOL: &str = "▸ ";
 
-#[derive(Debug, Clone, Copy, Default)]
-struct DropdownState {
-    selected: usize,
-}
-
 /// A dropdown whose options carry values, so callers handle domain results directly.
 #[derive(Debug)]
 pub struct Dropdown<T> {
     title: String,
     options: Vec<(String, T)>,
-    state: DropdownState,
+    selection: ListSelection,
 }
 
 impl<T> Dropdown<T> {
@@ -36,7 +32,7 @@ impl<T> Dropdown<T> {
         Self {
             title: title.into(),
             options,
-            state: DropdownState { selected },
+            selection: ListSelection::wrap(selected),
         }
     }
 
@@ -46,7 +42,7 @@ impl<T> Dropdown<T> {
         }
 
         self.options
-            .get(self.state.selected.min(self.options.len() - 1))
+            .get(self.selection.index().min(self.options.len() - 1))
             .map(|(_, value)| value)
     }
 }
@@ -65,21 +61,13 @@ impl<T> Popup for Dropdown<T> {
             return PopupEvent::Cancelled;
         }
 
-        self.state.selected = self.state.selected.min(self.options.len() - 1);
+        self.selection.set_len(self.options.len());
         match key.code {
-            KeyCode::Up => {
-                self.state.selected = if self.state.selected == 0 {
-                    self.options.len() - 1
-                } else {
-                    self.state.selected - 1
-                };
+            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
+                self.selection.handle_key(key.code);
                 PopupEvent::Handled
             }
-            KeyCode::Down => {
-                self.state.selected = (self.state.selected + 1) % self.options.len();
-                PopupEvent::Handled
-            }
-            KeyCode::Enter => PopupEvent::Completed(self.options.remove(self.state.selected).1),
+            KeyCode::Enter => PopupEvent::Completed(self.options.remove(self.selection.index()).1),
             KeyCode::Esc => PopupEvent::Cancelled,
             _ => PopupEvent::Handled,
         }
@@ -110,7 +98,7 @@ impl<T> Popup for Dropdown<T> {
             .highlight_symbol(HIGHLIGHT_SYMBOL);
 
         let visible = inner.height as usize;
-        let selected = self.state.selected.min(self.options.len() - 1);
+        let selected = self.selection.index().min(self.options.len() - 1);
         let offset = selected.saturating_add(1).saturating_sub(visible);
         let mut list_state = ListState::default()
             .with_selected(Some(selected))
