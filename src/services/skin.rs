@@ -130,6 +130,13 @@ impl SkinService {
             });
         self.previews.get_or_create(&account_id)
     }
+
+    pub fn preview_snapshot(
+        &self,
+        account_id: AccountId,
+    ) -> Option<Arc<Snapshot<AccountPreview, Error>>> {
+        self.previews.snapshot(&account_id)
+    }
 }
 
 async fn load_skin_state(store: &SkinStore, account_id: AccountId) -> Result<SkinState, Error> {

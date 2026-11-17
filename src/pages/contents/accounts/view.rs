@@ -58,27 +58,23 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
 
     let snapshot = ctx.accounts().state().snapshot();
     let view = snapshot.view();
-    let mut preview_anchor = Rect {
-        x: area.x,
-        y: area.y,
-        width: 1,
-        height: 1,
-    };
     match (view.data, view.error) {
         (Some(state), Some(error)) => {
-            let [error_area, accounts_area] =
+            let [error_area, body_area] =
                 Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(list_area);
             render_message(
                 frame,
                 error_area,
                 t!("common.error", error = error).as_ref(),
             );
+            let (accounts_area, preview_area) = account_body_layout(body_area);
             render_accounts(content, state, frame, accounts_area, theme);
-            preview_anchor = selected_anchor(content, state, accounts_area);
+            render_account_preview(content, ctx, state, frame, preview_area, theme);
         }
         (Some(state), None) => {
-            render_accounts(content, state, frame, list_area, theme);
-            preview_anchor = selected_anchor(content, state, list_area);
+            let (accounts_area, preview_area) = account_body_layout(list_area);
+            render_accounts(content, state, frame, accounts_area, theme);
+            render_account_preview(content, ctx, state, frame, preview_area, theme);
         }
         (None, Some(error)) => {
             render_message(frame, list_area, t!("common.error", error = error).as_ref())
@@ -100,28 +96,16 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
         };
         popup.render(frame, area, anchor, theme);
     }
-
-    if let Some(preview) = &content.preview {
-        preview.render(frame, area, preview_anchor, theme);
-    }
 }
 
-fn selected_anchor(content: &AccountsContent, state: &AccountState, area: Rect) -> Rect {
-    if state.accounts.is_empty() || area.height == 0 {
-        return area;
+fn account_body_layout(area: Rect) -> (Rect, Rect) {
+    if area.width < 46 {
+        return (area, Rect::new(area.x, area.y, 0, 0));
     }
-    let selected = content
-        .list
-        .selected()
-        .unwrap_or_default()
-        .min(state.accounts.len() - 1);
-    let row = selected.saturating_sub(content.list.offset());
-    Rect {
-        x: area.x,
-        y: area.y + u16::try_from(row).unwrap_or_default().min(area.height - 1),
-        width: area.width,
-        height: 1,
-    }
+    let width = (area.width / 3).clamp(18, 30);
+    let [list, preview] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(width)]).areas(area);
+    (list, preview)
 }
 
 fn render_authorization(ctx: &Services, frame: &mut Frame, area: Rect, theme: Theme) -> bool {
@@ -198,6 +182,96 @@ fn render_accounts(
 
     let list = List::new(items).highlight_style(theme.selection_style());
     frame.render_stateful_widget(list, area, &mut content.list);
+}
+
+fn render_account_preview(
+    content: &mut AccountsContent,
+    ctx: &Services,
+    state: &AccountState,
+    frame: &mut Frame,
+    area: Rect,
+    theme: Theme,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let Some(account) = content
+        .list
+        .selected()
+        .and_then(|index| state.accounts.get(index))
+    else {
+        return;
+    };
+    let account_id = account.id;
+    let cached = ctx.skins().preview_snapshot(account_id);
+    if content.preview_account != Some(account_id) || cached.is_none() {
+        content.preview_account = Some(account_id);
+        ctx.skins().preview(account_id);
+    }
+    let Some(snapshot) = ctx.skins().preview_snapshot(account_id) else {
+        return;
+    };
+    let view = snapshot.view();
+    let [image_area, footer_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
+
+    match view.data {
+        Some(preview) => match &preview.image {
+            Some(image) => frame.render_widget(image, image_area),
+            None => render_preview_notice(
+                frame,
+                image_area,
+                t!("accounts.preview_no_skin").as_ref(),
+                theme,
+            ),
+        },
+        None if view.status == SnapshotStatus::Idle || view.status == SnapshotStatus::Loading => {
+            render_preview_notice(frame, image_area, t!("common.loading").as_ref(), theme)
+        }
+        None => {
+            let message = match view.error {
+                Some(error) => t!("common.error", error = error.as_ref()).into_owned(),
+                None => t!("common.cancelled").into_owned(),
+            };
+            render_preview_notice(frame, image_area, &message, theme);
+        }
+    }
+
+    let detail = view
+        .data
+        .filter(|preview| preview.image.is_some())
+        .map(|preview| {
+            let mut parts = Vec::new();
+            if let Some(model) = preview.model {
+                parts.push(skin_model_label(model).into_owned());
+            }
+            parts.push(source_label(preview.source).into_owned());
+            parts.join(" · ")
+        })
+        .unwrap_or_default();
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::styled(account.authorizer_label(), Style::new().fg(theme.text_dim)),
+            Line::styled(detail, Style::new().fg(theme.text_dim)),
+        ]),
+        footer_area,
+    );
+}
+
+fn render_preview_notice(frame: &mut Frame, area: Rect, message: &str, theme: Theme) {
+    frame.render_widget(
+        Paragraph::new(message)
+            .centered()
+            .style(Style::new().fg(theme.text_dim)),
+        area,
+    );
+}
+
+fn source_label(source: crate::services::PreviewSource) -> Cow<'static, str> {
+    match source {
+        crate::services::PreviewSource::Profile => t!("accounts.preview_source_profile"),
+        crate::services::PreviewSource::Local => t!("accounts.preview_source_local"),
+    }
 }
 
 fn render_footer(content: &AccountsContent, frame: &mut Frame, area: Rect, theme: Theme) {

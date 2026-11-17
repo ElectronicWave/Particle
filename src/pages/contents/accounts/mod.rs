@@ -25,11 +25,9 @@ use crate::widgets::{
     text_edit::{EditEvent, TextEdit},
 };
 
-mod preview;
 mod view;
 mod yggdrasil;
 
-use preview::AccountPreviewPopup;
 use yggdrasil::{
     YggdrasilForm, YggdrasilFormEvent, hints as yggdrasil_hints, validate as validate_yggdrasil,
 };
@@ -37,7 +35,7 @@ use yggdrasil::{
 fn list_hints() -> Vec<KeyHint> {
     vec![
         KeyHint::new("↑/↓", t!("common.browse")),
-        KeyHint::new("ENTER", t!("accounts.preview")),
+        KeyHint::new("ENTER", t!("common.select")),
         KeyHint::new("A", t!("common.add_account")),
         KeyHint::new("S", t!("accounts.skins")),
         KeyHint::new("D", t!("common.remove")),
@@ -113,7 +111,7 @@ pub struct AccountsContent {
     mode: Mode,
     authorizer: Option<Dropdown<AuthorizerKind>>,
     skins: Option<SkinMode>,
-    preview: Option<AccountPreviewPopup>,
+    preview_account: Option<AccountId>,
     list: ListState,
     error: Option<String>,
 }
@@ -124,7 +122,7 @@ impl Default for AccountsContent {
             mode: Mode::List,
             authorizer: None,
             skins: None,
-            preview: None,
+            preview_account: None,
             list: ListState::default().with_selected(Some(0)),
             error: None,
         }
@@ -141,19 +139,6 @@ impl Content for AccountsContent {
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
-        if let Some(preview) = &mut self.preview {
-            match preview.handle_key(key) {
-                PopupEvent::Cancelled => self.preview = None,
-                PopupEvent::Completed(()) => {
-                    let account_id = preview.account_id();
-                    self.preview = None;
-                    ctx.accounts().select(account_id);
-                }
-                PopupEvent::Ignored | PopupEvent::Handled => {}
-            }
-            return ContentEvent::Handled;
-        }
-
         if let Some(popup) = &mut self.authorizer {
             match popup.handle_key(key) {
                 PopupEvent::Ignored | PopupEvent::Handled => return ContentEvent::Handled,
@@ -313,9 +298,6 @@ impl Content for AccountsContent {
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
-        if let Some(preview) = &self.preview {
-            return preview.hints();
-        }
         if let Some(skin_mode) = &self.skins {
             if let Some(picker) = &skin_mode.picker {
                 return picker.hints();
@@ -379,8 +361,8 @@ impl AccountsContent {
                 ContentEvent::Handled
             }
             KeyCode::Enter => {
-                if let Some(account) = self.selected_summary(ctx) {
-                    self.preview = Some(AccountPreviewPopup::open(ctx, &account));
+                if let Some(account_id) = self.selected_account(ctx) {
+                    ctx.accounts().select(account_id);
                 }
                 ContentEvent::Handled
             }
@@ -417,7 +399,6 @@ impl AccountsContent {
             }
             KeyCode::Char('s') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(account_id) = self.selected_account(ctx) {
-                    self.preview = None;
                     let snapshot = ctx.skins().snapshot();
                     let model = snapshot
                         .view()

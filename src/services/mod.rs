@@ -27,7 +27,7 @@ pub use install::{InstallPhase, InstallService, InstallSession, InstallSessionId
 pub use instance::InstanceService;
 pub use launch::{LaunchOutcome, LaunchService};
 pub use runtime::RuntimeService;
-pub use skin::{AccountPreview, PreviewSource, SkinService, SkinState};
+pub use skin::{PreviewSource, SkinService, SkinState};
 pub use ui::UiService;
 
 use self::launcher::LauncherHandle;
