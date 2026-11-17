@@ -15,7 +15,7 @@ use crate::theme::Theme;
 use crate::widgets::{
     cycle::Cycle,
     dropdown::Dropdown,
-    filepicker::{FilePicker, FilePickerMode},
+    filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
     list::ListSelection,
     popup::{Popup, PopupEvent},
     text_edit::{EditEvent, TextEdit},
@@ -104,8 +104,7 @@ impl SettingsPane for GeneralPane {
         }
 
         if self.edit.is_some() {
-            self.on_edit_key(ctx, key);
-            return PaneEvent::Handled;
+            return self.on_edit_key(ctx, key);
         }
 
         match key.code {
@@ -211,7 +210,10 @@ impl GeneralPane {
 
     fn open_picker(&mut self, start: PathBuf) {
         self.picker = Some(FilePicker::open(
-            &start,
+            FilePickerOptions {
+                cwd: start,
+                preferred_extensions: Vec::new(),
+            },
             FilePickerMode::Directory,
             t!("settings.pick_directory"),
         ));
@@ -222,32 +224,35 @@ impl GeneralPane {
         self.edit = Some(TextEdit::new(config.storage_root.display().to_string()));
     }
 
-    fn on_edit_key(&mut self, ctx: &Services, key: KeyEvent) {
+    fn on_edit_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {
         let event = match self.edit.as_mut() {
             Some(edit) => edit.handle_key(key),
-            None => return,
+            None => return PaneEvent::Ignored,
         };
 
         match event {
             EditEvent::Submit => {
                 let Some(edit) = self.edit.take() else {
-                    return;
+                    return PaneEvent::Handled;
                 };
                 let value = edit.input().trim();
                 if value.is_empty() {
                     self.error = Some(t!("settings.path_empty").into_owned());
-                    return;
+                    return PaneEvent::Handled;
                 }
 
                 let mut config = ctx.config().snapshot();
                 config.storage_root = PathBuf::from(value);
                 self.apply(ctx, config);
+                PaneEvent::Handled
             }
             EditEvent::Cancel => {
                 self.edit = None;
                 self.error = None;
+                PaneEvent::Handled
             }
-            EditEvent::Unhandled | EditEvent::Changed => {}
+            EditEvent::Changed => PaneEvent::Handled,
+            EditEvent::Unhandled => PaneEvent::Ignored,
         }
     }
 

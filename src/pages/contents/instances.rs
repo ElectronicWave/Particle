@@ -76,6 +76,13 @@ impl Content for InstancesContent {
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
         if let Some(instance_name) = self.confirm_remove.take() {
+            if key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                self.confirm_remove = Some(instance_name);
+                return ContentEvent::Ignored;
+            }
             match key.code {
                 KeyCode::Enter => {
                     ctx.instances().remove(instance_name);
@@ -103,7 +110,9 @@ impl Content for InstancesContent {
                 ctx.instances().load();
                 ContentEvent::Handled
             }
-            KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('d') | KeyCode::Delete
+                if !key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
                 self.confirm_remove = self.selected_instance(ctx);
                 ContentEvent::Handled
             }

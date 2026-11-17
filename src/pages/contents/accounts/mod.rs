@@ -17,7 +17,7 @@ use crate::pages::content::{Content, ContentEvent};
 use crate::services::Services;
 use crate::widgets::{
     dropdown::Dropdown,
-    filepicker::{FilePicker, FilePickerMode},
+    filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
     list::ListSelection,
     png::PngImage,
     popup::{Popup, PopupEvent},
@@ -111,7 +111,6 @@ pub struct AccountsContent {
     mode: Mode,
     authorizer: Option<Dropdown<AuthorizerKind>>,
     skins: Option<SkinMode>,
-    preview_account: Option<AccountId>,
     list: ListSelection,
     error: Option<String>,
 }
@@ -122,7 +121,6 @@ impl Default for AccountsContent {
             mode: Mode::List,
             authorizer: None,
             skins: None,
-            preview_account: None,
             list: ListSelection::wrap(0),
             error: None,
         }
@@ -141,7 +139,8 @@ impl Content for AccountsContent {
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
         if let Some(popup) = &mut self.authorizer {
             match popup.handle_key(key) {
-                PopupEvent::Ignored | PopupEvent::Handled => return ContentEvent::Handled,
+                PopupEvent::Ignored => return ContentEvent::Ignored,
+                PopupEvent::Handled => return ContentEvent::Handled,
                 PopupEvent::Cancelled => {
                     self.authorizer = None;
                     return ContentEvent::Handled;
@@ -157,7 +156,8 @@ impl Content for AccountsContent {
         if let Some(skin_mode) = &mut self.skins {
             if let Some(picker) = &mut skin_mode.picker {
                 match picker.handle_key(key) {
-                    PopupEvent::Ignored | PopupEvent::Handled => return ContentEvent::Handled,
+                    PopupEvent::Ignored => return ContentEvent::Ignored,
+                    PopupEvent::Handled => return ContentEvent::Handled,
                     PopupEvent::Cancelled => {
                         skin_mode.picker = None;
                         return ContentEvent::Handled;
@@ -190,7 +190,7 @@ impl Content for AccountsContent {
                     }
                     EditEvent::Changed => import.error = None,
                     EditEvent::Cancel => skin_mode.import = None,
-                    EditEvent::Unhandled => {}
+                    EditEvent::Unhandled => return ContentEvent::Ignored,
                 }
                 return ContentEvent::Handled;
             }
@@ -206,8 +206,12 @@ impl Content for AccountsContent {
                     };
                 }
                 KeyCode::Char('i') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
                     skin_mode.picker = Some(FilePicker::open(
-                        std::path::Path::new("."),
+                        FilePickerOptions {
+                            cwd,
+                            preferred_extensions: vec!["png".to_owned()],
+                        },
                         FilePickerMode::File,
                         t!("accounts.skin_pick"),
                     ));
@@ -215,7 +219,9 @@ impl Content for AccountsContent {
                 KeyCode::Char('c') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     ctx.skins().clear(skin_mode.account_id);
                 }
-                KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                KeyCode::Char('d') | KeyCode::Delete
+                    if !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
                     if let Some(skin_id) = selected_skin(ctx, skin_mode) {
                         ctx.skins().remove(skin_mode.account_id, skin_id);
                     }
@@ -227,7 +233,7 @@ impl Content for AccountsContent {
                     }
                 }
                 KeyCode::Esc => self.skins = None,
-                _ => {}
+                _ => return ContentEvent::Ignored,
             }
             return ContentEvent::Handled;
         }
@@ -237,64 +243,76 @@ impl Content for AccountsContent {
             Mode::Authorize => {
                 if key.code == KeyCode::Esc {
                     ctx.accounts().cancel_authorization();
+                    return ContentEvent::Handled;
                 }
-                ContentEvent::Handled
+                self.mode = Mode::Authorize;
+                ContentEvent::Ignored
             }
-            Mode::AddOffline(mut edit) => {
-                match edit.handle_key(key) {
-                    EditEvent::Submit => {
-                        let name = edit.input().trim().to_owned();
-                        if !name.is_empty() {
-                            ctx.accounts().sign_in_offline(name);
-                        }
+            Mode::AddOffline(mut edit) => match edit.handle_key(key) {
+                EditEvent::Submit => {
+                    let name = edit.input().trim().to_owned();
+                    if !name.is_empty() {
+                        ctx.accounts().sign_in_offline(name);
                     }
-                    EditEvent::Changed | EditEvent::Unhandled => {
-                        self.mode = Mode::AddOffline(edit);
-                    }
-                    EditEvent::Cancel => {}
+                    ContentEvent::Handled
                 }
-                ContentEvent::Handled
-            }
-            Mode::AddLocalYggdrasil(mut edit) => {
-                match edit.handle_key(key) {
-                    EditEvent::Submit => {
-                        let name = edit.input().trim().to_owned();
-                        if !name.is_empty() {
-                            ctx.accounts().sign_in_local_yggdrasil(name);
-                        }
-                    }
-                    EditEvent::Changed | EditEvent::Unhandled => {
-                        self.mode = Mode::AddLocalYggdrasil(edit);
-                    }
-                    EditEvent::Cancel => {}
+                EditEvent::Changed => {
+                    self.mode = Mode::AddOffline(edit);
+                    ContentEvent::Handled
                 }
-                ContentEvent::Handled
-            }
-            Mode::Yggdrasil(mut form) => {
-                match form.handle_key(key) {
-                    YggdrasilFormEvent::Ignored | YggdrasilFormEvent::Changed => {
+                EditEvent::Unhandled => {
+                    self.mode = Mode::AddOffline(edit);
+                    ContentEvent::Ignored
+                }
+                EditEvent::Cancel => ContentEvent::Handled,
+            },
+            Mode::AddLocalYggdrasil(mut edit) => match edit.handle_key(key) {
+                EditEvent::Submit => {
+                    let name = edit.input().trim().to_owned();
+                    if !name.is_empty() {
+                        ctx.accounts().sign_in_local_yggdrasil(name);
+                    }
+                    ContentEvent::Handled
+                }
+                EditEvent::Changed => {
+                    self.mode = Mode::AddLocalYggdrasil(edit);
+                    ContentEvent::Handled
+                }
+                EditEvent::Unhandled => {
+                    self.mode = Mode::AddLocalYggdrasil(edit);
+                    ContentEvent::Ignored
+                }
+                EditEvent::Cancel => ContentEvent::Handled,
+            },
+            Mode::Yggdrasil(mut form) => match form.handle_key(key) {
+                YggdrasilFormEvent::Ignored => {
+                    self.error = None;
+                    self.mode = Mode::Yggdrasil(form);
+                    ContentEvent::Ignored
+                }
+                YggdrasilFormEvent::Changed => {
+                    self.error = None;
+                    self.mode = Mode::Yggdrasil(form);
+                    ContentEvent::Handled
+                }
+                YggdrasilFormEvent::Cancel => ContentEvent::Handled,
+                YggdrasilFormEvent::Submit => {
+                    let (base_url, username, password) = form.values();
+                    if let Some(error) = validate_yggdrasil(&base_url, &username, &password) {
+                        self.error = Some(error);
+                        self.mode = Mode::Yggdrasil(form);
+                    } else if ctx
+                        .accounts()
+                        .sign_in_yggdrasil(base_url, username, password)
+                    {
                         self.error = None;
+                    } else {
+                        self.error = Some(t!("accounts.busy").into_owned());
                         self.mode = Mode::Yggdrasil(form);
                     }
-                    YggdrasilFormEvent::Cancel => {}
-                    YggdrasilFormEvent::Submit => {
-                        let (base_url, username, password) = form.values();
-                        if let Some(error) = validate_yggdrasil(&base_url, &username, &password) {
-                            self.error = Some(error);
-                            self.mode = Mode::Yggdrasil(form);
-                        } else if ctx
-                            .accounts()
-                            .sign_in_yggdrasil(base_url, username, password)
-                        {
-                            self.error = None;
-                        } else {
-                            self.error = Some(t!("accounts.busy").into_owned());
-                            self.mode = Mode::Yggdrasil(form);
-                        }
-                    }
+                    ContentEvent::Handled
                 }
-                ContentEvent::Handled
-            }
+            },
         }
     }
 
@@ -384,7 +402,9 @@ impl AccountsContent {
                     Some(Dropdown::open(t!("accounts.authorizer_picker"), options, 0));
                 ContentEvent::Handled
             }
-            KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('d') | KeyCode::Delete
+                if !key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
                 if let Some(account_id) = self.selected_account(ctx) {
                     ctx.accounts().remove(account_id);
                 }

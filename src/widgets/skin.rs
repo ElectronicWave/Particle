@@ -23,12 +23,13 @@ struct SkinTexture {
 
 impl SkinTexture {
     fn from_png(bytes: &[u8]) -> Result<Self> {
-        let image = PngImage::from_png(bytes).context("decode skin PNG")?;
-        if image.width() != TEXTURE_WIDTH
-            || (image.height() != TEXTURE_HEIGHT && image.height() != TEXTURE_WIDTH)
+        let (width, height) = png_dimensions(bytes)?;
+        if width != u32::from(TEXTURE_WIDTH)
+            || (height != u32::from(TEXTURE_HEIGHT) && height != u32::from(TEXTURE_WIDTH))
         {
-            bail!("unsupported skin size {}x{}", image.width(), image.height());
+            bail!("unsupported skin size {width}x{height}, expected 64x32 or 64x64");
         }
+        let image = PngImage::from_png(bytes).context("decode skin PNG")?;
         Ok(Self { image })
     }
 
@@ -39,6 +40,13 @@ impl SkinTexture {
     fn pixel(&self, x: u16, y: u16) -> Rgba {
         self.image.pixel(x, y)
     }
+}
+
+fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
+    let decoder = ::png::Decoder::new(std::io::Cursor::new(bytes));
+    let reader = decoder.read_info().context("read skin PNG header")?;
+    let info = reader.info();
+    Ok((info.width, info.height))
 }
 
 /// Maps skin texture regions into a standalone raster image.

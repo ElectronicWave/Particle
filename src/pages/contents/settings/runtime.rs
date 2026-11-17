@@ -19,7 +19,7 @@ use crate::theme::Theme;
 use crate::widgets::{
     cycle::Cycle,
     dropdown::Dropdown,
-    filepicker::{FilePicker, FilePickerMode},
+    filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
     list::ListSelection,
     popup::{Popup, PopupEvent},
     spinner,
@@ -335,7 +335,10 @@ impl RuntimePane {
     fn open_picker(&mut self, config: &LauncherConfig) {
         let start = std::env::current_dir().unwrap_or_else(|_| config.storage_root.clone());
         self.picker = Some(FilePicker::open(
-            &start,
+            FilePickerOptions {
+                cwd: start,
+                preferred_extensions: Vec::new(),
+            },
             FilePickerMode::Directory,
             t!("settings.pick_directory"),
         ));

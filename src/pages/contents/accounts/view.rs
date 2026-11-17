@@ -67,12 +67,12 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
                 error_area,
                 t!("common.error", error = error).as_ref(),
             );
-            let (accounts_area, preview_area) = account_body_layout(body_area);
+            let (accounts_area, preview_area) = account_body_layout(content, ctx, state, body_area);
             render_accounts(content, state, frame, accounts_area, theme);
             render_account_preview(content, ctx, state, frame, preview_area, theme);
         }
         (Some(state), None) => {
-            let (accounts_area, preview_area) = account_body_layout(list_area);
+            let (accounts_area, preview_area) = account_body_layout(content, ctx, state, list_area);
             render_accounts(content, state, frame, accounts_area, theme);
             render_account_preview(content, ctx, state, frame, preview_area, theme);
         }
@@ -98,8 +98,30 @@ pub(super) fn render(content: &mut AccountsContent, ctx: &Services, frame: &mut 
     }
 }
 
-fn account_body_layout(area: Rect) -> (Rect, Rect) {
-    if area.width < 46 {
+fn account_body_layout(
+    content: &mut AccountsContent,
+    ctx: &Services,
+    state: &AccountState,
+    area: Rect,
+) -> (Rect, Rect) {
+    let Some(account) = content
+        .list
+        .selected()
+        .and_then(|index| state.accounts.get(index))
+    else {
+        return (area, Rect::new(area.x, area.y, 0, 0));
+    };
+    let preview = ctx.skins().preview_snapshot(account.id);
+    if preview.is_none() {
+        ctx.skins().preview(account.id);
+    }
+    let has_skin = preview.is_some_and(|snapshot| {
+        snapshot
+            .view()
+            .data
+            .is_some_and(|preview| preview.image.is_some())
+    });
+    if !has_skin || area.width < 46 {
         return (area, Rect::new(area.x, area.y, 0, 0));
     }
     let width = (area.width / 3).clamp(18, 30);
@@ -204,11 +226,6 @@ fn render_account_preview(
         return;
     };
     let account_id = account.id;
-    let cached = ctx.skins().preview_snapshot(account_id);
-    if content.preview_account != Some(account_id) || cached.is_none() {
-        content.preview_account = Some(account_id);
-        ctx.skins().preview(account_id);
-    }
     let Some(snapshot) = ctx.skins().preview_snapshot(account_id) else {
         return;
     };
@@ -219,12 +236,7 @@ fn render_account_preview(
     match view.data {
         Some(preview) => match &preview.image {
             Some(image) => frame.render_widget(image, image_area),
-            None => render_preview_notice(
-                frame,
-                image_area,
-                t!("accounts.preview_no_skin").as_ref(),
-                theme,
-            ),
+            None => return,
         },
         None if view.status == SnapshotStatus::Idle || view.status == SnapshotStatus::Loading => {
             render_preview_notice(frame, image_area, t!("common.loading").as_ref(), theme)
@@ -276,37 +288,31 @@ fn source_label(source: crate::services::PreviewSource) -> Cow<'static, str> {
 }
 
 fn render_footer(content: &AccountsContent, frame: &mut Frame, area: Rect, theme: Theme) {
-    if let Some(skin_mode) = &content.skins {
-        if let Some(import) = &skin_mode.import {
-            let help = import
-                .error
-                .clone()
-                .unwrap_or_else(|| t!("accounts.skin_name_help").into_owned());
-            let help_style = if import.error.is_some() {
-                Style::new().fg(theme.danger)
-            } else {
-                Style::new().fg(theme.text_dim)
-            };
-            frame.render_widget(
-                Paragraph::new(vec![
-                    Line::from(vec![
-                        Span::styled(
-                            format!("{}: ", t!("accounts.skin_name")),
-                            Style::new().fg(theme.accent),
-                        ),
-                        Span::raw(import.edit.cursor_display()),
-                    ]),
-                    Line::styled(help, help_style),
-                ]),
-                area,
-            );
-            return;
-        }
+    if let Some(import) = content
+        .skins
+        .as_ref()
+        .and_then(|skin_mode| skin_mode.import.as_ref())
+    {
+        let help = import
+            .error
+            .clone()
+            .unwrap_or_else(|| t!("accounts.skin_name_help").into_owned());
+        let help_style = if import.error.is_some() {
+            Style::new().fg(theme.danger)
+        } else {
+            Style::new().fg(theme.text_dim)
+        };
         frame.render_widget(
-            Paragraph::new(Line::styled(
-                t!("accounts.skin_help"),
-                Style::new().fg(theme.text_dim),
-            )),
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled(
+                        format!("{}: ", t!("accounts.skin_name")),
+                        Style::new().fg(theme.accent),
+                    ),
+                    Span::raw(import.edit.cursor_display()),
+                ]),
+                Line::styled(help, help_style),
+            ]),
             area,
         );
         return;
@@ -364,10 +370,18 @@ fn render_skins(
     };
     let [body_area, status_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
-    let (list_area, preview_area) = skin_body_layout(body_area);
 
     let snapshot = ctx.skins().snapshot();
     let view = snapshot.view();
+    let skins_empty = view
+        .data
+        .filter(|state| state.account_id == skin_mode.account_id)
+        .is_some_and(|state| state.entries.is_empty());
+    let (list_area, preview_area) = if skins_empty {
+        (body_area, Rect::new(body_area.x, body_area.y, 0, 0))
+    } else {
+        skin_body_layout(body_area)
+    };
     match (view.data, view.error) {
         (Some(state), Some(error)) if state.account_id == skin_mode.account_id => {
             let [error_area, list_area] =
@@ -500,7 +514,13 @@ fn render_skin_list(
 ) {
     skin_mode.list.set_len(state.entries.len());
     if state.entries.is_empty() {
-        render_message(frame, area, t!("accounts.skins_empty").as_ref());
+        let [_, message_area, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .areas(area);
+        render_message(frame, message_area, t!("accounts.skins_empty").as_ref());
         return;
     }
 

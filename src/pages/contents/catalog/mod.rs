@@ -202,6 +202,7 @@ impl Content for CatalogContent {
                 }
             }
             Screen::InstanceName(screen) => match screen.on_key(key) {
+                NameAction::Ignored => ContentEvent::Ignored,
                 NameAction::Handled => ContentEvent::Handled,
                 NameAction::Cancel => {
                     self.leave_instance_name();
