@@ -63,8 +63,8 @@ impl Popup for AccountPreviewPopup {
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, _anchor: Rect, theme: Theme) {
-        let popup = centered(area);
+    fn render(&self, frame: &mut Frame, _area: Rect, _anchor: Rect, theme: Theme) {
+        let popup = centered(frame.area());
         frame.render_widget(Clear, popup);
 
         let block = Block::default()
