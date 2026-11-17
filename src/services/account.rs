@@ -5,19 +5,36 @@ use elemental::{
     core::auth::{
         accounts::{Account, AccountId},
         authorizers::{
-            microsoft::MicrosoftAuthorizer, offline::OfflineAuthorizer,
-            yggdrasil::YggdrasilAuthorizer,
+            microsoft::{MICROSOFT_AUTHORIZER_ID, MicrosoftAuthorizer},
+            offline::{OFFLINE_AUTHORIZER_ID, OfflineAuthorizer},
+            yggdrasil::{YGGDRASIL_AUTHORIZER_ID, YggdrasilAuthorizer},
         },
+        credential::CredentialKind,
     },
     launcher::AccountStore,
 };
 use ratail::{Redraw, Task};
+
+use crate::t;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountSummary {
     pub id: AccountId,
     pub name: String,
     pub authorizer: String,
+    pub local: bool,
+}
+
+impl AccountSummary {
+    pub fn authorizer_label(&self) -> String {
+        match self.authorizer.as_str() {
+            MICROSOFT_AUTHORIZER_ID => t!("accounts.microsoft").into_owned(),
+            YGGDRASIL_AUTHORIZER_ID if self.local => t!("accounts.local_yggdrasil").into_owned(),
+            YGGDRASIL_AUTHORIZER_ID => t!("accounts.yggdrasil").into_owned(),
+            OFFLINE_AUTHORIZER_ID => t!("accounts.offline").into_owned(),
+            other => other.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -140,9 +157,29 @@ impl AccountService {
         let store = self.store.clone();
         self.state.spawn_once(move || async move {
             let authorizer = YggdrasilAuthorizer {
-                base_url,
+                base_url: Some(base_url),
                 username,
                 password,
+                client_token: None,
+            };
+            let account = store.sign_in(&authorizer).await?;
+            store.select(account.account_id()).await?;
+            load_account_state(&store).await
+        })
+    }
+
+    pub fn sign_in_local_yggdrasil(&self, username: String) -> bool {
+        let username = username.trim().to_owned();
+        if username.is_empty() {
+            return false;
+        }
+
+        let store = self.store.clone();
+        self.state.spawn_once(move || async move {
+            let authorizer = YggdrasilAuthorizer {
+                base_url: None,
+                username,
+                password: String::new(),
                 client_token: None,
             };
             let account = store.sign_in(&authorizer).await?;
@@ -179,16 +216,17 @@ impl AccountService {
 
 async fn load_account_state(store: &AccountStore) -> Result<AccountState, Error> {
     let index = store.index().await;
-    let mut accounts = store
-        .list()
-        .await?
-        .iter()
-        .map(|account| AccountSummary {
+    let mut accounts = Vec::new();
+    for account in store.list().await? {
+        let credential = account.credential().await?;
+        accounts.push(AccountSummary {
             id: account.account_id(),
             name: account.display_name().to_owned(),
+            local: account.authorizer_id() == YGGDRASIL_AUTHORIZER_ID
+                && credential.kind == CredentialKind::Legacy,
             authorizer: account.authorizer_id().to_owned(),
-        })
-        .collect::<Vec<AccountSummary>>();
+        });
+    }
     accounts.sort_by(|left, right| left.name.cmp(&right.name));
 
     Ok(AccountState {

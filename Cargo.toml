@@ -8,6 +8,8 @@ elemental = { git = "https://github.com/ElectronicWave/Elemental", branch = "mai
     "launcher",
     "shared-toml",
     "yggdrasil-auth",
+    "authlib-injector-embed",
+    "offline-server",
 ] }
 anyhow = "1.0.102"
 ratail = { git = "https://github.com/ElectronicWave/ratail" }

@@ -100,7 +100,7 @@ fn account_label(ctx: &Services) -> String {
         .accounts
         .iter()
         .find(|account| account.id == selected)
-        .map(|account| format!("{} ({})", account.name, account.authorizer))
+        .map(|account| format!("{} ({})", account.name, account.authorizer_label()))
         .unwrap_or_else(|| t!("home.no_account").into_owned())
 }
 
