@@ -14,7 +14,11 @@ use crate::drivers;
 use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
 use crate::services::{LaunchOutcome, Services};
 use crate::theme::Theme;
-use crate::widgets::list::ListSelection;
+use crate::widgets::{
+    confirm::Confirmation,
+    list::ListSelection,
+    popup::{Popup, PopupEvent},
+};
 
 fn instance_hints() -> Vec<KeyHint> {
     vec![
@@ -29,7 +33,7 @@ fn instance_hints() -> Vec<KeyHint> {
 #[derive(Debug, Default)]
 pub struct InstancesContent {
     list: ListSelection,
-    confirm_remove: Option<String>,
+    confirm: Option<Confirmation<String>>,
 }
 
 impl Content for InstancesContent {
@@ -65,34 +69,34 @@ impl Content for InstancesContent {
             (None, None) => render_loading(ctx, frame, body_area, t!("instances.loading").as_ref()),
         }
 
-        render_launch_status(
-            ctx,
-            self.confirm_remove.as_deref(),
-            frame,
-            status_area,
-            theme,
-        );
+        render_launch_status(ctx, frame, status_area, theme);
+
+        if let Some(confirm) = &self.confirm {
+            let anchor = Rect {
+                x: area.x,
+                y: area.bottom().saturating_sub(1),
+                width: 1,
+                height: 1,
+            };
+            confirm.render(frame, area, anchor, theme);
+        }
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
-        if let Some(instance_name) = self.confirm_remove.take() {
-            if key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-            {
-                self.confirm_remove = Some(instance_name);
-                return ContentEvent::Ignored;
-            }
-            match key.code {
-                KeyCode::Enter => {
+        if let Some(confirm) = &mut self.confirm {
+            match confirm.handle_key(key) {
+                PopupEvent::Ignored => return ContentEvent::Ignored,
+                PopupEvent::Handled => return ContentEvent::Handled,
+                PopupEvent::Cancelled => {
+                    self.confirm = None;
+                    return ContentEvent::Handled;
+                }
+                PopupEvent::Completed(instance_name) => {
+                    self.confirm = None;
                     ctx.instances().remove(instance_name);
-                }
-                KeyCode::Esc => {}
-                _ => {
-                    self.confirm_remove = Some(instance_name);
+                    return ContentEvent::Handled;
                 }
             }
-            return ContentEvent::Handled;
         }
 
         match key.code {
@@ -113,7 +117,13 @@ impl Content for InstancesContent {
             KeyCode::Char('d') | KeyCode::Delete
                 if !key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
-                self.confirm_remove = self.selected_instance(ctx);
+                if let Some(instance_name) = self.selected_instance(ctx) {
+                    self.confirm = Some(Confirmation::open(
+                        t!("instances.confirm_remove", instance = instance_name.clone())
+                            .into_owned(),
+                        instance_name,
+                    ));
+                }
                 ContentEvent::Handled
             }
             _ => ContentEvent::Ignored,
@@ -121,13 +131,9 @@ impl Content for InstancesContent {
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
-        if self.confirm_remove.is_some() {
-            vec![
-                KeyHint::new("ENTER", t!("common.remove")),
-                KeyHint::new("ESC", t!("common.cancel")),
-            ]
-        } else {
-            instance_hints()
+        match &self.confirm {
+            Some(confirm) => confirm.hints(),
+            None => instance_hints(),
         }
     }
 }
@@ -237,24 +243,7 @@ fn render_failures(report: &InspectReport, frame: &mut Frame, area: Rect, theme:
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
-fn render_launch_status(
-    ctx: &Services,
-    confirm_remove: Option<&str>,
-    frame: &mut Frame,
-    area: Rect,
-    theme: Theme,
-) {
-    if let Some(instance_name) = confirm_remove {
-        frame.render_widget(
-            Paragraph::new(Line::styled(
-                t!("instances.confirm_remove", instance = instance_name),
-                Style::new().fg(theme.warning),
-            )),
-            area,
-        );
-        return;
-    }
-
+fn render_launch_status(ctx: &Services, frame: &mut Frame, area: Rect, theme: Theme) {
     let snapshot = ctx.launch().snapshot();
     let view = snapshot.view();
     let lines = if let Some(error) = view.error {

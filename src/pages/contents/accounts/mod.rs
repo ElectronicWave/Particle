@@ -16,6 +16,7 @@ use crate::app::config::microsoft_client_id;
 use crate::pages::content::{Content, ContentEvent};
 use crate::services::Services;
 use crate::widgets::{
+    confirm::Confirmation,
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
     list::ListSelection,
@@ -138,6 +139,19 @@ struct CapeRename {
 }
 
 #[derive(Debug)]
+enum DeleteTarget {
+    Account(AccountId),
+    Skin {
+        account_id: AccountId,
+        skin_id: SkinId,
+    },
+    Cape {
+        account_id: AccountId,
+        cape_id: CapeId,
+    },
+}
+
+#[derive(Debug)]
 struct SkinPreviewSlot {
     path: PathBuf,
     model: SkinModel,
@@ -157,6 +171,7 @@ pub struct AccountsContent {
     authorizer: Option<Dropdown<AuthorizerKind>>,
     skins: Option<SkinMode>,
     capes: Option<CapeMode>,
+    confirm: Option<Confirmation<DeleteTarget>>,
     list: ListSelection,
     error: Option<String>,
 }
@@ -168,6 +183,7 @@ impl Default for AccountsContent {
             authorizer: None,
             skins: None,
             capes: None,
+            confirm: None,
             list: ListSelection::wrap(0),
             error: None,
         }
@@ -181,9 +197,35 @@ impl Content for AccountsContent {
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
         view::render(self, ctx, frame, area);
+
+        if let Some(confirm) = &self.confirm {
+            let anchor = Rect {
+                x: area.x,
+                y: area.bottom().saturating_sub(1),
+                width: 1,
+                height: 1,
+            };
+            confirm.render(frame, area, anchor, ctx.ui().theme());
+        }
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
+        if let Some(confirm) = &mut self.confirm {
+            match confirm.handle_key(key) {
+                PopupEvent::Ignored => return ContentEvent::Ignored,
+                PopupEvent::Handled => return ContentEvent::Handled,
+                PopupEvent::Cancelled => {
+                    self.confirm = None;
+                    return ContentEvent::Handled;
+                }
+                PopupEvent::Completed(target) => {
+                    self.confirm = None;
+                    self.apply_delete(ctx, target);
+                    return ContentEvent::Handled;
+                }
+            }
+        }
+
         if let Some(popup) = &mut self.authorizer {
             match popup.handle_key(key) {
                 PopupEvent::Ignored => return ContentEvent::Ignored,
@@ -297,8 +339,14 @@ impl Content for AccountsContent {
                 KeyCode::Char('d') | KeyCode::Delete
                     if !key.modifiers.contains(KeyModifiers::CONTROL) =>
                 {
-                    if let Some(skin_id) = selected_skin(ctx, skin_mode) {
-                        ctx.skins().remove(skin_mode.account_id, skin_id);
+                    if let Some((skin_id, name)) = selected_skin_entry(ctx, skin_mode) {
+                        self.confirm = Some(Confirmation::open(
+                            t!("accounts.confirm_remove_skin", skin = name).into_owned(),
+                            DeleteTarget::Skin {
+                                account_id: skin_mode.account_id,
+                                skin_id,
+                            },
+                        ));
                     }
                 }
                 KeyCode::Enter => {
@@ -403,8 +451,14 @@ impl Content for AccountsContent {
                 KeyCode::Char('d') | KeyCode::Delete
                     if !key.modifiers.contains(KeyModifiers::CONTROL) =>
                 {
-                    if let Some(cape_id) = selected_cape(ctx, cape_mode) {
-                        ctx.capes().remove(cape_mode.account_id, cape_id);
+                    if let Some((cape_id, name)) = selected_cape_entry(ctx, cape_mode) {
+                        self.confirm = Some(Confirmation::open(
+                            t!("accounts.confirm_remove_cape", cape = name).into_owned(),
+                            DeleteTarget::Cape {
+                                account_id: cape_mode.account_id,
+                                cape_id,
+                            },
+                        ));
                     }
                 }
                 KeyCode::Enter => {
@@ -497,6 +551,9 @@ impl Content for AccountsContent {
     }
 
     fn keybindings(&self) -> Vec<KeyHint> {
+        if let Some(confirm) = &self.confirm {
+            return confirm.hints();
+        }
         if let Some(skin_mode) = &self.skins {
             if let Some(picker) = &skin_mode.picker {
                 return picker.hints();
@@ -603,8 +660,11 @@ impl AccountsContent {
             KeyCode::Char('d') | KeyCode::Delete
                 if !key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
-                if let Some(account_id) = self.selected_account(ctx) {
-                    ctx.accounts().remove(account_id);
+                if let Some(account) = self.selected_summary(ctx) {
+                    self.confirm = Some(Confirmation::open(
+                        t!("accounts.confirm_remove_account", account = account.name).into_owned(),
+                        DeleteTarget::Account(account.id),
+                    ));
                 }
                 ContentEvent::Handled
             }
@@ -665,6 +725,26 @@ impl AccountsContent {
         let state = snapshot.view().data?;
         let selected = self.list.selected()?;
         state.accounts.get(selected).cloned()
+    }
+
+    fn apply_delete(&self, ctx: &Services, target: DeleteTarget) {
+        match target {
+            DeleteTarget::Account(account_id) => {
+                ctx.accounts().remove(account_id);
+            }
+            DeleteTarget::Skin {
+                account_id,
+                skin_id,
+            } => {
+                ctx.skins().remove(account_id, skin_id);
+            }
+            DeleteTarget::Cape {
+                account_id,
+                cape_id,
+            } => {
+                ctx.capes().remove(account_id, cape_id);
+            }
+        }
     }
 }
 
