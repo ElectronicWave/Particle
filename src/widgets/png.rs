@@ -189,6 +189,33 @@ impl PngImage {
         );
         self.pixels[usize::from(y) * usize::from(self.width) + usize::from(x)] = pixel;
     }
+
+    /// Copies a rectangular region into a standalone image.
+    pub fn crop(&self, x: u16, y: u16, width: u16, height: u16) -> Result<Self> {
+        if width == 0 || height == 0 {
+            bail!("crop region must not be empty");
+        }
+        let right = u32::from(x) + u32::from(width);
+        let bottom = u32::from(y) + u32::from(height);
+        if right > u32::from(self.width) || bottom > u32::from(self.height) {
+            bail!(
+                "crop region {width}x{height} at ({x}, {y}) exceeds image {}x{}",
+                self.width,
+                self.height
+            );
+        }
+
+        let mut pixels = Vec::with_capacity(usize::from(width) * usize::from(height));
+        for row in y..y + height {
+            let start = usize::from(row) * usize::from(self.width) + usize::from(x);
+            pixels.extend_from_slice(&self.pixels[start..start + usize::from(width)]);
+        }
+        Ok(Self {
+            width,
+            height,
+            pixels,
+        })
+    }
 }
 
 impl Widget for &PngImage {

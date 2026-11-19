@@ -1,3 +1,10 @@
+//! Minecraft cape texture layout reference:
+//! <https://minecraft.wiki/w/Cape>
+//!
+//! A cape uses the same 64×32 texture grid as a skin. The outer 10×16 face
+//! starts at `(1, 1)`; the surrounding texels belong to the side and top/bottom
+//! faces.
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -5,10 +12,11 @@ use anyhow::{Context, Result, bail};
 use crate::widgets::png::PngImage;
 
 const TEXTURE_WIDTH: u16 = 64;
+const TEXTURE_HEIGHT: u16 = 32;
+const CAPE_X: u16 = 1;
+const CAPE_Y: u16 = 1;
 const CAPE_WIDTH: u16 = 10;
 const CAPE_HEIGHT: u16 = 16;
-const CAPE_SOURCE_X: u16 = 1;
-const CAPE_SOURCE_Y: u16 = 1;
 
 /// Extracts the outer face of a Minecraft cape texture for display.
 pub struct CapePreview;
@@ -22,31 +30,13 @@ impl CapePreview {
 
     pub fn from_png(bytes: &[u8]) -> Result<PngImage> {
         let texture = PngImage::from_png(bytes).context("decode cape PNG")?;
-        let unit = texture.width() / TEXTURE_WIDTH;
-        if unit == 0
-            || texture.width() % TEXTURE_WIDTH != 0
-            || texture.height() < (CAPE_HEIGHT + CAPE_SOURCE_Y) * unit
-        {
+        if (texture.width(), texture.height()) != (TEXTURE_WIDTH, TEXTURE_HEIGHT) {
             bail!(
-                "unsupported cape size {}x{}, expected a multiple of {TEXTURE_WIDTH}x32",
+                "unsupported cape size {}x{}, expected {TEXTURE_WIDTH}x{TEXTURE_HEIGHT}",
                 texture.width(),
                 texture.height()
             );
         }
-
-        let mut face = PngImage::empty(CAPE_WIDTH, CAPE_HEIGHT);
-        for y in 0..CAPE_HEIGHT {
-            for x in 0..CAPE_WIDTH {
-                face.set_pixel(
-                    x,
-                    y,
-                    texture.pixel(
-                        CAPE_SOURCE_X * unit + x * unit,
-                        CAPE_SOURCE_Y * unit + y * unit,
-                    ),
-                );
-            }
-        }
-        Ok(face)
+        texture.crop(CAPE_X, CAPE_Y, CAPE_WIDTH, CAPE_HEIGHT)
     }
 }
