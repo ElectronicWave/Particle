@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use elemental::{
-    launcher::{AccountStore, SkinStore},
+    launcher::{AccountStore, CapeStore, SkinStore},
     shared::scope::Scope,
 };
 use ratail::{Context, Redraw};
@@ -10,6 +10,7 @@ use crate::app::config::{ConfigStore, LauncherConfig, build_launcher};
 use crate::pages::route::Route;
 
 mod account;
+mod cape;
 mod catalog;
 mod config;
 mod install;
@@ -21,6 +22,7 @@ mod skin;
 mod ui;
 
 pub use account::{AccountService, AccountState, AccountSummary, AuthorizationState};
+pub use cape::{CapeService, CapeState};
 pub use catalog::CatalogService;
 pub use config::ConfigService;
 pub use install::{InstallPhase, InstallService, InstallSession};
@@ -40,6 +42,7 @@ pub struct Services {
     instances: InstanceService,
     runtimes: RuntimeService,
     skins: SkinService,
+    capes: CapeService,
     install: InstallService,
     launch: LaunchService,
 }
@@ -50,27 +53,30 @@ impl Services {
         let launcher = LauncherHandle::new(build_launcher(&config)?);
         let accounts = Arc::new(AccountStore::open(Scope::Config).await?);
         let skin_store = Arc::new(SkinStore::open(Scope::Config).await?);
+        let cape_store = Arc::new(CapeStore::open(Scope::Config).await?);
 
         let config_service =
             ConfigService::new(config, config_store, launcher.clone(), ui.redraw().clone());
         let instances = InstanceService::new(launcher.clone(), ui.redraw().clone());
         let runtimes = RuntimeService::new(config_service.clone(), ui.redraw().clone());
         let skins = SkinService::new(skin_store.clone(), accounts.clone(), ui.redraw().clone());
+        let capes = CapeService::new(cape_store.clone(), ui.redraw().clone());
         let install = InstallService::new(
             launcher.clone(),
             config_service.clone(),
             instances.clone(),
             ui.redraw().clone(),
         );
+        let account_service = AccountService::new(accounts.clone(), ui.redraw().clone());
+        let catalog_service = CatalogService::new(launcher.clone(), ui.redraw());
         let launch = LaunchService::new(
-            accounts.clone(),
+            accounts,
             launcher,
             config_service.clone(),
             skin_store,
+            cape_store,
             ui.redraw().clone(),
         );
-        let account_service = AccountService::new(accounts, ui.redraw().clone());
-        let catalog_service = CatalogService::new(ui.redraw());
 
         Ok(Self {
             ui,
@@ -80,6 +86,7 @@ impl Services {
             instances,
             runtimes,
             skins,
+            capes,
             install,
             launch,
         })
@@ -111,6 +118,10 @@ impl Services {
 
     pub fn skins(&self) -> &SkinService {
         &self.skins
+    }
+
+    pub fn capes(&self) -> &CapeService {
+        &self.capes
     }
 
     pub fn install(&self) -> &InstallService {

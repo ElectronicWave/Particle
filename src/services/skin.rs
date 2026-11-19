@@ -105,6 +105,14 @@ impl SkinService {
         })
     }
 
+    pub fn rename(&self, account_id: AccountId, skin_id: SkinId, name: String) -> bool {
+        let store = self.store.clone();
+        self.state.spawn_once(move || async move {
+            store.rename(skin_id, name).await?;
+            load_skin_state(&store, account_id).await
+        })
+    }
+
     pub fn clear(&self, account_id: AccountId) -> bool {
         self.previews.remove(&account_id);
         let store = self.store.clone();

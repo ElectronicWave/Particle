@@ -9,7 +9,7 @@ use anyhow::Error;
 use elemental::{
     core::auth::{credential::CredentialKind, texture::SkinModel},
     launcher::{
-        AccountStore, LaunchOptions, SkinStore,
+        AccountStore, CapeStore, LaunchOptions, SkinStore,
         offline_server::{OfflineProfile, OfflineServer},
     },
 };
@@ -40,6 +40,7 @@ pub struct LaunchService {
     launcher: LauncherHandle,
     config: ConfigService,
     skins: Arc<SkinStore>,
+    capes: Arc<CapeStore>,
     launch: Task<LaunchOutcome, Error>,
     redraw: Redraw,
 }
@@ -50,6 +51,7 @@ impl LaunchService {
         launcher: LauncherHandle,
         config: ConfigService,
         skins: Arc<SkinStore>,
+        capes: Arc<CapeStore>,
         redraw: Redraw,
     ) -> Self {
         Self {
@@ -57,6 +59,7 @@ impl LaunchService {
             launcher,
             config,
             skins,
+            capes,
             launch: Task::with_redraw(&redraw),
             redraw,
         }
@@ -71,6 +74,7 @@ impl LaunchService {
         let launcher = self.launcher.get();
         let config = self.config.snapshot();
         let skins = self.skins.clone();
+        let capes = self.capes.clone();
         let redraw = self.redraw.clone();
 
         self.launch.spawn_once(move || async move {
@@ -81,12 +85,16 @@ impl LaunchService {
             let mut credential = account.credential().await?;
             let offline_server = if credential.kind == CredentialKind::Legacy {
                 let selected = skins.selected(account.account_id()).await?;
+                let selected_cape = capes.selected(account.account_id()).await?;
                 let mut profile = OfflineProfile::new(credential.username.clone())
                     .with_uuid(credential.uuid.clone());
                 if let Some(selected) = selected {
                     profile = profile
                         .with_skin(selected.path)
                         .with_skin_model(server_skin_model(selected.model));
+                }
+                if let Some(selected) = selected_cape {
+                    profile = profile.with_cape(selected.path);
                 }
                 let server = OfflineServer::builder()
                     .server_name("Particle".to_owned())

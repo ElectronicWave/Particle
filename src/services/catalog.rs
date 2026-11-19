@@ -3,22 +3,28 @@ use elemental::{
     core::minecraft::{MinecraftVersion, MinecraftVersionId},
     driver::{
         catalog::{GameVersion, LoaderRelease},
+        descriptors::VANILLA_DRIVER,
         driver::DriverDescriptor,
     },
-    launcher::DriverCatalog,
 };
 use ratail::{Redraw, Task, TaskCache};
 
+use super::launcher::LauncherHandle;
+
 pub struct CatalogService {
+    launcher: LauncherHandle,
     drivers: Vec<DriverDescriptor>,
     versions: TaskCache<&'static str, Vec<GameVersion>, Error>,
     loader_versions: TaskCache<(&'static str, MinecraftVersionId), Vec<LoaderRelease>, Error>,
 }
 
 impl CatalogService {
-    pub(super) fn new(redraw: &Redraw) -> Self {
+    pub(super) fn new(launcher: LauncherHandle, redraw: &Redraw) -> Self {
+        let mut drivers: Vec<DriverDescriptor> = launcher.get().drivers().descriptors().collect();
+        drivers.sort_by_key(|driver| *driver != VANILLA_DRIVER);
         Self {
-            drivers: DriverCatalog::supported_drivers().collect(),
+            launcher,
+            drivers,
             versions: TaskCache::new(redraw),
             loader_versions: TaskCache::new(redraw),
         }
@@ -33,8 +39,9 @@ impl CatalogService {
     }
 
     pub fn load_versions(&self, driver: DriverDescriptor) -> bool {
+        let launcher = self.launcher.clone();
         self.versions
-            .spawn_once(driver.id, move |_| load_versions(driver))
+            .spawn_once(driver.id, move |_| load_versions(launcher, driver))
     }
 
     pub fn loader_versions(
@@ -48,13 +55,18 @@ impl CatalogService {
 
     pub fn load_loader_versions(&self, driver: DriverDescriptor, game: MinecraftVersionId) -> bool {
         let key = (driver.id, game.clone());
+        let launcher = self.launcher.clone();
         self.loader_versions
-            .spawn_once(key, move |_| load_loader_versions(driver, game))
+            .spawn_once(key, move |_| load_loader_versions(launcher, driver, game))
     }
 }
 
-async fn load_versions(driver: DriverDescriptor) -> Result<Vec<GameVersion>, Error> {
-    let catalog = DriverCatalog::for_driver(driver)?;
+async fn load_versions(
+    launcher: LauncherHandle,
+    driver: DriverDescriptor,
+) -> Result<Vec<GameVersion>, Error> {
+    let launcher = launcher.get();
+    let catalog = launcher.drivers().catalog(driver)?;
     let mut versions = catalog.game_versions().await?;
 
     // Newest first; unparseable ids sort last by raw id.
@@ -73,9 +85,11 @@ async fn load_versions(driver: DriverDescriptor) -> Result<Vec<GameVersion>, Err
 }
 
 async fn load_loader_versions(
+    launcher: LauncherHandle,
     driver: DriverDescriptor,
     game: MinecraftVersionId,
 ) -> Result<Vec<LoaderRelease>, Error> {
-    let catalog = DriverCatalog::for_driver(driver)?;
+    let launcher = launcher.get();
+    let catalog = launcher.drivers().catalog(driver)?;
     Ok(catalog.loader_versions(&game).await?)
 }

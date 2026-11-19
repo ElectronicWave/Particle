@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::t;
 use elemental::{
     core::auth::{accounts::AccountId, texture::SkinModel},
-    launcher::SkinId,
+    launcher::{CapeId, SkinId},
 };
 use ratail::KeyHint;
 use ratatui::{
@@ -38,6 +38,7 @@ fn list_hints() -> Vec<KeyHint> {
         KeyHint::new("ENTER", t!("common.select")),
         KeyHint::new("A", t!("common.add_account")),
         KeyHint::new("S", t!("accounts.skins")),
+        KeyHint::new("C", t!("accounts.capes")),
         KeyHint::new("D", t!("common.remove")),
         KeyHint::new("R", t!("common.refresh")),
         KeyHint::new("ESC", t!("common.return")),
@@ -57,7 +58,20 @@ fn skin_hints() -> Vec<KeyHint> {
         KeyHint::new("ENTER", t!("accounts.skin_select")),
         KeyHint::new("I", t!("accounts.skin_import")),
         KeyHint::new("M", t!("accounts.skin_model")),
+        KeyHint::new("R", t!("accounts.rename")),
         KeyHint::new("C", t!("accounts.skin_clear")),
+        KeyHint::new("D", t!("common.remove")),
+        KeyHint::new("ESC", t!("common.return")),
+    ]
+}
+
+fn cape_hints() -> Vec<KeyHint> {
+    vec![
+        KeyHint::new("↑/↓", t!("common.browse")),
+        KeyHint::new("ENTER", t!("accounts.cape_select")),
+        KeyHint::new("I", t!("accounts.cape_import")),
+        KeyHint::new("R", t!("accounts.rename")),
+        KeyHint::new("C", t!("accounts.cape_clear")),
         KeyHint::new("D", t!("common.remove")),
         KeyHint::new("ESC", t!("common.return")),
     ]
@@ -87,13 +101,38 @@ struct SkinMode {
     model: SkinModel,
     view: SkinView,
     picker: Option<FilePicker>,
-    import: Option<SkinImport>,
+    import: Option<ImportPrompt>,
+    rename: Option<SkinRename>,
     preview: Option<SkinPreviewSlot>,
 }
 
 #[derive(Debug)]
-struct SkinImport {
+struct CapeMode {
+    account_id: AccountId,
+    list: ListSelection,
+    picker: Option<FilePicker>,
+    import: Option<ImportPrompt>,
+    rename: Option<CapeRename>,
+    preview: Option<CapePreviewSlot>,
+}
+
+#[derive(Debug)]
+struct ImportPrompt {
     path: PathBuf,
+    edit: TextEdit,
+    error: Option<String>,
+}
+
+#[derive(Debug)]
+struct SkinRename {
+    skin_id: SkinId,
+    edit: TextEdit,
+    error: Option<String>,
+}
+
+#[derive(Debug)]
+struct CapeRename {
+    cape_id: CapeId,
     edit: TextEdit,
     error: Option<String>,
 }
@@ -107,10 +146,17 @@ struct SkinPreviewSlot {
 }
 
 #[derive(Debug)]
+struct CapePreviewSlot {
+    path: PathBuf,
+    image: Result<PngImage, String>,
+}
+
+#[derive(Debug)]
 pub struct AccountsContent {
     mode: Mode,
     authorizer: Option<Dropdown<AuthorizerKind>>,
     skins: Option<SkinMode>,
+    capes: Option<CapeMode>,
     list: ListSelection,
     error: Option<String>,
 }
@@ -121,6 +167,7 @@ impl Default for AccountsContent {
             mode: Mode::List,
             authorizer: None,
             skins: None,
+            capes: None,
             list: ListSelection::wrap(0),
             error: None,
         }
@@ -163,8 +210,8 @@ impl Content for AccountsContent {
                         return ContentEvent::Handled;
                     }
                     PopupEvent::Completed(path) => {
-                        let name = default_skin_name(&path);
-                        skin_mode.import = Some(SkinImport {
+                        let name = default_texture_name(&path);
+                        skin_mode.import = Some(ImportPrompt {
                             path,
                             edit: TextEdit::new(name),
                             error: None,
@@ -195,6 +242,25 @@ impl Content for AccountsContent {
                 return ContentEvent::Handled;
             }
 
+            if let Some(rename) = &mut skin_mode.rename {
+                match rename.edit.handle_key(key) {
+                    EditEvent::Submit => {
+                        let name = rename.edit.input().trim().to_owned();
+                        if name.is_empty() {
+                            rename.error = Some(t!("accounts.name_required").into_owned());
+                        } else {
+                            let skin_id = rename.skin_id;
+                            skin_mode.rename = None;
+                            ctx.skins().rename(skin_mode.account_id, skin_id, name);
+                        }
+                    }
+                    EditEvent::Changed => rename.error = None,
+                    EditEvent::Cancel => skin_mode.rename = None,
+                    EditEvent::Unhandled => return ContentEvent::Ignored,
+                }
+                return ContentEvent::Handled;
+            }
+
             match key.code {
                 KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
                     skin_mode.list.handle_key(key.code);
@@ -219,6 +285,15 @@ impl Content for AccountsContent {
                 KeyCode::Char('c') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     ctx.skins().clear(skin_mode.account_id);
                 }
+                KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    if let Some((skin_id, name)) = selected_skin_entry(ctx, skin_mode) {
+                        skin_mode.rename = Some(SkinRename {
+                            skin_id,
+                            edit: TextEdit::new(name),
+                            error: None,
+                        });
+                    }
+                }
                 KeyCode::Char('d') | KeyCode::Delete
                     if !key.modifiers.contains(KeyModifiers::CONTROL) =>
                 {
@@ -233,6 +308,111 @@ impl Content for AccountsContent {
                     }
                 }
                 KeyCode::Esc => self.skins = None,
+                _ => return ContentEvent::Ignored,
+            }
+            return ContentEvent::Handled;
+        }
+
+        if let Some(cape_mode) = &mut self.capes {
+            if let Some(picker) = &mut cape_mode.picker {
+                match picker.handle_key(key) {
+                    PopupEvent::Ignored => return ContentEvent::Ignored,
+                    PopupEvent::Handled => return ContentEvent::Handled,
+                    PopupEvent::Cancelled => {
+                        cape_mode.picker = None;
+                        return ContentEvent::Handled;
+                    }
+                    PopupEvent::Completed(path) => {
+                        let name = default_texture_name(&path);
+                        cape_mode.import = Some(ImportPrompt {
+                            path,
+                            edit: TextEdit::new(name),
+                            error: None,
+                        });
+                        cape_mode.picker = None;
+                        return ContentEvent::Handled;
+                    }
+                }
+            }
+
+            if let Some(import) = &mut cape_mode.import {
+                match import.edit.handle_key(key) {
+                    EditEvent::Submit => {
+                        let name = import.edit.input().trim().to_owned();
+                        if name.is_empty() {
+                            import.error = Some(t!("accounts.name_required").into_owned());
+                        } else {
+                            let path = import.path.clone();
+                            cape_mode.import = None;
+                            ctx.capes().import(cape_mode.account_id, name, path);
+                        }
+                    }
+                    EditEvent::Changed => import.error = None,
+                    EditEvent::Cancel => cape_mode.import = None,
+                    EditEvent::Unhandled => return ContentEvent::Ignored,
+                }
+                return ContentEvent::Handled;
+            }
+
+            if let Some(rename) = &mut cape_mode.rename {
+                match rename.edit.handle_key(key) {
+                    EditEvent::Submit => {
+                        let name = rename.edit.input().trim().to_owned();
+                        if name.is_empty() {
+                            rename.error = Some(t!("accounts.name_required").into_owned());
+                        } else {
+                            let cape_id = rename.cape_id;
+                            cape_mode.rename = None;
+                            ctx.capes().rename(cape_mode.account_id, cape_id, name);
+                        }
+                    }
+                    EditEvent::Changed => rename.error = None,
+                    EditEvent::Cancel => cape_mode.rename = None,
+                    EditEvent::Unhandled => return ContentEvent::Ignored,
+                }
+                return ContentEvent::Handled;
+            }
+
+            match key.code {
+                KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
+                    cape_mode.list.handle_key(key.code);
+                }
+                KeyCode::Char('i') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                    cape_mode.picker = Some(FilePicker::open(
+                        FilePickerOptions {
+                            cwd,
+                            preferred_extensions: vec!["png".to_owned()],
+                        },
+                        FilePickerMode::File,
+                        t!("accounts.cape_pick"),
+                    ));
+                }
+                KeyCode::Char('c') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    ctx.capes().clear(cape_mode.account_id);
+                }
+                KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    if let Some((cape_id, name)) = selected_cape_entry(ctx, cape_mode) {
+                        cape_mode.rename = Some(CapeRename {
+                            cape_id,
+                            edit: TextEdit::new(name),
+                            error: None,
+                        });
+                    }
+                }
+                KeyCode::Char('d') | KeyCode::Delete
+                    if !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
+                    if let Some(cape_id) = selected_cape(ctx, cape_mode) {
+                        ctx.capes().remove(cape_mode.account_id, cape_id);
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some(cape_id) = selected_cape(ctx, cape_mode) {
+                        ctx.capes().choose(cape_mode.account_id, cape_id);
+                    }
+                }
+                KeyCode::Esc => self.capes = None,
                 _ => return ContentEvent::Ignored,
             }
             return ContentEvent::Handled;
@@ -323,11 +503,29 @@ impl Content for AccountsContent {
             }
             if skin_mode.import.is_some() {
                 return vec![
-                    KeyHint::new("ENTER", t!("accounts.skin_import_confirm")),
+                    KeyHint::new("ENTER", t!("accounts.confirm")),
+                    KeyHint::new("ESC", t!("common.cancel")),
+                ];
+            }
+            if skin_mode.rename.is_some() {
+                return vec![
+                    KeyHint::new("ENTER", t!("accounts.confirm")),
                     KeyHint::new("ESC", t!("common.cancel")),
                 ];
             }
             return skin_hints();
+        }
+        if let Some(cape_mode) = &self.capes {
+            if let Some(picker) = &cape_mode.picker {
+                return picker.hints();
+            }
+            if cape_mode.import.is_some() || cape_mode.rename.is_some() {
+                return vec![
+                    KeyHint::new("ENTER", t!("accounts.confirm")),
+                    KeyHint::new("ESC", t!("common.cancel")),
+                ];
+            }
+            return cape_hints();
         }
         if let Some(popup) = &self.authorizer {
             return popup.hints();
@@ -432,8 +630,25 @@ impl AccountsContent {
                         view: SkinView::Full,
                         picker: None,
                         import: None,
+                        rename: None,
                         preview: None,
                     });
+                    self.capes = None;
+                }
+                ContentEvent::Handled
+            }
+            KeyCode::Char('c') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(account_id) = self.selected_account(ctx) {
+                    ctx.capes().load(account_id);
+                    self.capes = Some(CapeMode {
+                        account_id,
+                        list: ListSelection::wrap(0),
+                        picker: None,
+                        import: None,
+                        rename: None,
+                        preview: None,
+                    });
+                    self.skins = None;
                 }
                 ContentEvent::Handled
             }
@@ -454,16 +669,40 @@ impl AccountsContent {
 }
 
 fn selected_skin(ctx: &Services, skin_mode: &SkinMode) -> Option<SkinId> {
+    selected_skin_entry(ctx, skin_mode).map(|(skin_id, _)| skin_id)
+}
+
+fn selected_skin_entry(ctx: &Services, skin_mode: &SkinMode) -> Option<(SkinId, String)> {
     let snapshot = ctx.skins().snapshot();
     let state = snapshot.view().data?;
     if state.account_id != skin_mode.account_id {
         return None;
     }
     let selected = skin_mode.list.selected()?;
-    state.entries.get(selected).map(|entry| entry.asset.id)
+    state
+        .entries
+        .get(selected)
+        .map(|entry| (entry.asset.id, entry.asset.name.clone()))
 }
 
-fn default_skin_name(path: &Path) -> String {
+fn selected_cape(ctx: &Services, cape_mode: &CapeMode) -> Option<CapeId> {
+    selected_cape_entry(ctx, cape_mode).map(|(cape_id, _)| cape_id)
+}
+
+fn selected_cape_entry(ctx: &Services, cape_mode: &CapeMode) -> Option<(CapeId, String)> {
+    let snapshot = ctx.capes().snapshot();
+    let state = snapshot.view().data?;
+    if state.account_id != cape_mode.account_id {
+        return None;
+    }
+    let selected = cape_mode.list.selected()?;
+    state
+        .entries
+        .get(selected)
+        .map(|entry| (entry.asset.id, entry.asset.name.clone()))
+}
+
+fn default_texture_name(path: &Path) -> String {
     let Some(stem) = path.file_stem() else {
         return String::new();
     };

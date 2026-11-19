@@ -1,3 +1,4 @@
+pub mod cape;
 pub mod cycle;
 pub mod dropdown;
 pub mod filepicker;
