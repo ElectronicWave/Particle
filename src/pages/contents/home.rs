@@ -1,5 +1,5 @@
 use crate::t;
-use ratail::KeyHint;
+use ratail::{KeyHint, Page, PageEvent};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -10,7 +10,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::pages::content::{Content, ContentEvent};
+use crate::pages::route::Route;
 use crate::services::Services;
 
 fn home_hints() -> Vec<KeyHint> {
@@ -23,13 +23,13 @@ fn home_hints() -> Vec<KeyHint> {
 #[derive(Debug, Default)]
 pub struct HomeContent;
 
-impl Content for HomeContent {
-    fn init(&mut self, ctx: &Services) {
+impl Page<Services> for HomeContent {
+    fn init(&mut self, ctx: &Services, _route: &Route) {
         ctx.accounts().load();
         ctx.instances().load();
     }
 
-    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+    fn render(&mut self, ctx: &Services, _route: &Route, frame: &mut Frame, area: Rect) {
         let theme = ctx.ui().theme();
         let config = ctx.config().snapshot();
         let account = account_label(ctx);
@@ -65,18 +65,18 @@ impl Content for HomeContent {
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
+    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
         match key.code {
             KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ctx.accounts().load();
                 ctx.instances().load();
-                ContentEvent::Handled
+                PageEvent::Handled
             }
-            _ => ContentEvent::Ignored,
+            _ => PageEvent::Ignored,
         }
     }
 
-    fn keybindings(&self) -> Vec<KeyHint> {
+    fn keybindings(&self, _route: &Route) -> Vec<KeyHint> {
         home_hints()
     }
 }

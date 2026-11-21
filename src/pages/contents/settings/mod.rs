@@ -3,7 +3,7 @@ mod general;
 mod pane;
 mod runtime;
 
-use ratail::KeyHint;
+use ratail::{KeyHint, Page, PageEvent};
 use ratatui::{
     Frame,
     crossterm::event::KeyEvent,
@@ -13,7 +13,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::pages::content::{Content, ContentEvent};
+use crate::pages::route::Route;
 use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
@@ -40,12 +40,12 @@ impl Default for SettingsContent {
     }
 }
 
-impl Content for SettingsContent {
-    fn init(&mut self, ctx: &Services) {
+impl Page<Services> for SettingsContent {
+    fn init(&mut self, ctx: &Services, _route: &Route) {
         self.panes[self.active].init(ctx);
     }
 
-    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+    fn render(&mut self, ctx: &Services, _route: &Route, frame: &mut Frame, area: Rect) {
         let theme = ctx.ui().theme();
         let [tabs_area, body_area, status_area] = Layout::vertical([
             Constraint::Length(1),
@@ -79,22 +79,22 @@ impl Content for SettingsContent {
         );
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
+    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
         if self.panes[self.active].on_key(ctx, key) == PaneEvent::Handled {
-            return ContentEvent::Handled;
+            return PageEvent::Handled;
         }
 
         match tab_step(key) {
             Some(step) => {
                 self.active = cycle_index(self.panes.len(), self.active, step);
                 self.panes[self.active].init(ctx);
-                ContentEvent::Handled
+                PageEvent::Handled
             }
-            None => ContentEvent::Ignored,
+            None => PageEvent::Ignored,
         }
     }
 
-    fn keybindings(&self) -> Vec<KeyHint> {
+    fn keybindings(&self, _route: &Route) -> Vec<KeyHint> {
         let pane = &self.panes[self.active];
         if pane.is_modal() {
             return pane.hints();

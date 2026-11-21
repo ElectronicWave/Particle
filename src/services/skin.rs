@@ -1,11 +1,14 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Error;
 use elemental::{
     core::auth::{
         accounts::{Account, AccountId},
         credential::CredentialKind,
-        texture::SkinModel,
+        texture::{SkinModel, TextureType},
     },
     launcher::{AccountSkinExt, AccountStore, SelectedSkin, SkinEntry, SkinId, SkinStore},
 };
@@ -15,6 +18,8 @@ use crate::widgets::{
     png::PngImage,
     skin::{SkinPreview, SkinView},
 };
+
+use super::{RetryGate, ensure_cached, fetch_texture};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkinState {
@@ -34,6 +39,11 @@ pub struct AccountPreview {
     pub image: Option<PngImage>,
     pub model: Option<SkinModel>,
     pub source: PreviewSource,
+    /// Texture kinds the account advertises as uploadable.
+    ///
+    /// `None` means the profile could not be read, so callers should not
+    /// treat the account as read-only.
+    pub uploadable: Option<Vec<TextureType>>,
 }
 
 pub struct SkinService {
@@ -41,7 +51,21 @@ pub struct SkinService {
     accounts: Arc<AccountStore>,
     state: Task<SkinState, Error>,
     previews: TaskCache<AccountId, AccountPreview, Error>,
+    textures: TaskCache<SkinTextureKey, PngImage, Error>,
+    preview_retry: RetryGate<AccountId>,
+    texture_retry: RetryGate<SkinTextureKey>,
     client: reqwest::Client,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SkinTextureKey(PathBuf, bool, bool);
+
+fn texture_key(path: &Path, model: SkinModel, view: SkinView) -> SkinTextureKey {
+    SkinTextureKey(
+        path.to_owned(),
+        model == SkinModel::Slim,
+        view == SkinView::Full,
+    )
 }
 
 impl SkinService {
@@ -51,6 +75,9 @@ impl SkinService {
             accounts,
             state: Task::with_redraw(&redraw),
             previews: TaskCache::new(&redraw),
+            textures: TaskCache::new(&redraw),
+            preview_retry: RetryGate::new(),
+            texture_retry: RetryGate::new(),
             client: reqwest::Client::new(),
         }
     }
@@ -99,8 +126,30 @@ impl SkinService {
             if credential.kind == CredentialKind::Legacy {
                 store.select(account_id, skin_id, model).await?;
             } else {
+                let uploadable = account.textures().await?.uploadable;
+                if !uploadable.contains(&TextureType::Skin) {
+                    anyhow::bail!("account does not allow skin uploads");
+                }
                 AccountSkinExt::skin(account.as_ref(), store.skin(skin_id, model)).await?;
             }
+            load_skin_state(&store, account_id).await
+        })
+    }
+
+    pub fn set_model(&self, account_id: AccountId, skin_id: SkinId, model: SkinModel) -> bool {
+        let store = self.store.clone();
+        self.state.spawn_once(move || async move {
+            store.set_model(skin_id, model).await?;
+            load_skin_state(&store, account_id).await
+        })
+    }
+
+    pub fn backup_online(&self, account_id: AccountId, name: String) -> bool {
+        let store = self.store.clone();
+        let accounts = self.accounts.clone();
+        let client = self.client.clone();
+        self.state.spawn_once(move || async move {
+            backup_online_skin(&store, &accounts, &client, account_id, name).await?;
             load_skin_state(&store, account_id).await
         })
     }
@@ -132,11 +181,12 @@ impl SkinService {
         let store = self.store.clone();
         let accounts = self.accounts.clone();
         let client = self.client.clone();
-        self.previews
-            .spawn_once(account_id, move |account_id| async move {
-                load_preview(&store, &accounts, &client, account_id).await
-            });
-        self.previews.get_or_create(&account_id)
+        ensure_cached(
+            &self.previews,
+            &self.preview_retry,
+            account_id,
+            move || async move { load_preview(&store, &accounts, &client, account_id).await },
+        )
     }
 
     pub fn preview_snapshot(
@@ -144,6 +194,31 @@ impl SkinService {
         account_id: AccountId,
     ) -> Option<Arc<Snapshot<AccountPreview, Error>>> {
         self.previews.snapshot(&account_id)
+    }
+
+    pub fn preview_texture(
+        &self,
+        path: &Path,
+        model: SkinModel,
+        view: SkinView,
+    ) -> Task<PngImage, Error> {
+        let key = texture_key(path, model, view);
+        let path = path.to_owned();
+        ensure_cached(
+            &self.textures,
+            &self.texture_retry,
+            key,
+            move || async move { SkinPreview::from_path(&path, model, view) },
+        )
+    }
+
+    pub fn preview_texture_snapshot(
+        &self,
+        path: &Path,
+        model: SkinModel,
+        view: SkinView,
+    ) -> Option<Arc<Snapshot<PngImage, Error>>> {
+        self.textures.snapshot(&texture_key(path, model, view))
     }
 }
 
@@ -181,6 +256,7 @@ async fn load_preview(
             image: None,
             model: None,
             source: PreviewSource::Local,
+            uploadable: None,
         }))
 }
 
@@ -189,29 +265,47 @@ async fn profile_preview(
     account: &dyn Account,
 ) -> Result<AccountPreview, Error> {
     let textures = account.textures().await?;
+    let uploadable = Some(textures.uploadable);
     let Some(skin) = textures.skin else {
         return Ok(AccountPreview {
             image: None,
             model: None,
             source: PreviewSource::Profile,
+            uploadable,
         });
     };
 
-    let bytes = client
-        .get(&skin.url)
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let bytes = fetch_texture(client, &skin.url).await?;
     let image = SkinPreview::from_png(&bytes, skin.model, SkinView::Head)?;
 
     Ok(AccountPreview {
         image: Some(image),
         model: Some(skin.model),
         source: PreviewSource::Profile,
+        uploadable,
     })
+}
+
+async fn backup_online_skin(
+    store: &SkinStore,
+    accounts: &AccountStore,
+    client: &reqwest::Client,
+    account_id: AccountId,
+    name: String,
+) -> Result<(), Error> {
+    let account = accounts.account(account_id).await?;
+    let credential = account.credential().await?;
+    if credential.kind == CredentialKind::Legacy {
+        return Ok(());
+    }
+
+    let Some(skin) = account.textures().await?.skin else {
+        return Ok(());
+    };
+
+    let bytes = fetch_texture(client, &skin.url).await?;
+    store.import(name, bytes, skin.model).await?;
+    Ok(())
 }
 
 async fn local_preview(
@@ -229,5 +323,6 @@ async fn local_preview(
         image: Some(image),
         model: Some(selected.model),
         source: PreviewSource::Local,
+        uploadable: None,
     }))
 }

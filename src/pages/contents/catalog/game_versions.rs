@@ -1,9 +1,8 @@
-use crate::t;
 use elemental::{
     core::minecraft::MinecraftVersionId,
-    driver::{catalog::GameVersion, driver::DriverDescriptor},
+    driver::{catalog::GameVersion, descriptors::VANILLA_DRIVER},
 };
-use ratail::SnapshotStatus;
+use ratail::{KeyHint, NavAction, Page, PageEvent};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
@@ -11,78 +10,104 @@ use ratatui::{
     widgets::{List, ListItem},
 };
 
-use super::{ScreenAction, filter::VersionFilter};
-use crate::pages::content::{render_loading, render_message};
+use super::VersionFilter;
+use super::{CatalogRoute, LoaderSelection};
+use crate::pages::content::{render_message, render_snapshot};
 use crate::services::Services;
+use crate::t;
 use crate::theme::Theme;
 use crate::widgets::list::ListSelection;
 
-#[derive(Debug)]
-pub(super) struct GameVersionsScreen {
+#[derive(Default)]
+pub(super) struct GameVersionsPage {
     versions: ListSelection,
 }
 
-impl Default for GameVersionsScreen {
-    fn default() -> Self {
-        Self {
-            versions: ListSelection::clamp(),
-        }
-    }
-}
-
-impl GameVersionsScreen {
-    pub(super) fn reset(&mut self) {
-        self.versions = ListSelection::clamp();
-    }
-
-    pub(super) fn render(
-        &mut self,
-        ctx: &Services,
-        frame: &mut Frame,
-        area: Rect,
-        driver: DriverDescriptor,
-        filter: VersionFilter,
-    ) {
-        let theme = ctx.ui().theme();
-        let snapshot = ctx.catalog().versions(driver).snapshot();
-        let view = snapshot.view();
-        match (view.data, view.error) {
-            (Some(data), Some(error)) => {
-                let [error_area, list_area] =
-                    Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-                render_message(frame, error_area, &t!("common.error", error = error));
-                self.render_versions(data, frame, list_area, filter, theme);
-            }
-            (Some(data), None) => self.render_versions(data, frame, area, filter, theme),
-            (None, Some(error)) => render_message(frame, area, &t!("common.error", error = error)),
-            (None, None) if view.status == SnapshotStatus::Cancelled => {
-                render_message(frame, area, &t!("common.cancelled"))
-            }
-            (None, None) => render_loading(ctx, frame, area, &t!("common.loading")),
+impl Page<Services, CatalogRoute> for GameVersionsPage {
+    fn init(&mut self, ctx: &Services, route: &CatalogRoute) {
+        let CatalogRoute::GameVersions { driver, .. } = route else {
+            return;
+        };
+        let driver = ctx.catalog().drivers()[*driver];
+        if ctx
+            .catalog()
+            .versions(driver)
+            .snapshot()
+            .view()
+            .data
+            .is_none()
+        {
+            ctx.catalog().load_versions(driver);
         }
     }
 
-    pub(super) fn on_key(
+    fn on_key(
         &mut self,
         ctx: &Services,
+        route: &CatalogRoute,
         key: KeyEvent,
-        driver: DriverDescriptor,
-        filter: VersionFilter,
-    ) -> ScreenAction {
+    ) -> PageEvent<CatalogRoute> {
+        let CatalogRoute::GameVersions { driver, filter } = route else {
+            return PageEvent::Ignored;
+        };
         match key.code {
             KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
                 self.versions.handle_key(key.code);
-                ScreenAction::Handled
+                PageEvent::Handled
             }
-            KeyCode::Enter => match self.selected_game(ctx, driver, filter) {
-                Some(game) => ScreenAction::OpenLoader(game),
-                None => ScreenAction::Handled,
-            },
-            _ => ScreenAction::Ignored,
+            KeyCode::Enter => {
+                let Some(game) = self.selected_game(ctx, *driver, *filter) else {
+                    return PageEvent::Handled;
+                };
+                let driver_descriptor = ctx.catalog().drivers()[*driver];
+                if driver_descriptor == VANILLA_DRIVER {
+                    PageEvent::Navigate(NavAction::Push(CatalogRoute::InstanceName {
+                        driver: *driver,
+                        selection: LoaderSelection { game, loader: None },
+                    }))
+                } else {
+                    ctx.catalog()
+                        .load_loader_versions(driver_descriptor, game.clone());
+                    PageEvent::Navigate(NavAction::Push(CatalogRoute::LoaderVersions {
+                        driver: *driver,
+                        game,
+                        filter: *filter,
+                    }))
+                }
+            }
+            _ => PageEvent::Ignored,
         }
     }
 
-    fn render_versions(
+    fn keybindings(&self, _route: &CatalogRoute) -> Vec<KeyHint> {
+        super::catalog_hints()
+    }
+
+    fn render(&mut self, ctx: &Services, route: &CatalogRoute, frame: &mut Frame, area: Rect) {
+        let CatalogRoute::GameVersions { driver, filter } = route else {
+            return;
+        };
+        let theme = ctx.ui().theme();
+        let [filter_area, body_area] =
+            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+        super::render_filter_tabs(frame, filter_area, *filter, theme);
+        let snapshot = ctx
+            .catalog()
+            .versions(ctx.catalog().drivers()[*driver])
+            .snapshot();
+        render_snapshot(
+            ctx,
+            &snapshot.view(),
+            &t!("common.loading"),
+            frame,
+            body_area,
+            |data, frame, area| self.render_list(data, frame, area, *filter, theme),
+        );
+    }
+}
+
+impl GameVersionsPage {
+    fn render_list(
         &mut self,
         data: &[GameVersion],
         frame: &mut Frame,
@@ -116,10 +141,13 @@ impl GameVersionsScreen {
     fn selected_game(
         &self,
         ctx: &Services,
-        driver: DriverDescriptor,
+        driver: usize,
         filter: VersionFilter,
     ) -> Option<MinecraftVersionId> {
-        let snapshot = ctx.catalog().versions(driver).snapshot();
+        let snapshot = ctx
+            .catalog()
+            .versions(ctx.catalog().drivers()[driver])
+            .snapshot();
         let data = snapshot.view().data?;
         let versions = data
             .iter()

@@ -1,4 +1,4 @@
-use ratail::KeyHint;
+use ratail::{KeyHint, Modal, ModalOutcome};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -8,10 +8,9 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use crate::services::Services;
 use crate::t;
-use crate::theme::Theme;
 use crate::widgets::list::ListSelection;
-use crate::widgets::popup::{Popup, PopupEvent};
 
 const MIN_WIDTH: u16 = 16;
 const HORIZONTAL_PADDING: u16 = 2;
@@ -25,6 +24,7 @@ pub struct Dropdown<T> {
     title: String,
     options: Vec<(String, T)>,
     selection: ListSelection,
+    anchor: Option<Rect>,
 }
 
 impl<T> Dropdown<T> {
@@ -33,7 +33,14 @@ impl<T> Dropdown<T> {
             title: title.into(),
             options,
             selection: ListSelection::wrap(selected),
+            anchor: None,
         }
+    }
+
+    /// Sets the screen rect the dropdown points at. Callers that position the
+    /// dropdown themselves set this before rendering it through [`Modal`].
+    pub fn set_anchor(&mut self, anchor: Rect) {
+        self.anchor = Some(anchor);
     }
 
     pub fn selected_value(&self) -> Option<&T> {
@@ -47,37 +54,41 @@ impl<T> Dropdown<T> {
     }
 }
 
-impl<T> Popup for Dropdown<T> {
+impl<T> Modal<Services> for Dropdown<T> {
     type Value = T;
 
-    fn handle_key(&mut self, key: KeyEvent) -> PopupEvent<T> {
+    fn on_key(&mut self, _ctx: &Services, key: KeyEvent) -> ModalOutcome<T> {
         if key
             .modifiers
             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
-            return PopupEvent::Ignored;
+            return ModalOutcome::Ignored;
         }
         if self.options.is_empty() {
-            return PopupEvent::Cancelled;
+            return ModalOutcome::Cancelled;
         }
 
         self.selection.set_len(self.options.len());
         match key.code {
             KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
                 self.selection.handle_key(key.code);
-                PopupEvent::Handled
+                ModalOutcome::Handled
             }
-            KeyCode::Enter => PopupEvent::Completed(self.options.remove(self.selection.index()).1),
-            KeyCode::Esc => PopupEvent::Cancelled,
-            _ => PopupEvent::Handled,
+            KeyCode::Enter => {
+                ModalOutcome::Completed(self.options.remove(self.selection.index()).1)
+            }
+            KeyCode::Esc => ModalOutcome::Cancelled,
+            _ => ModalOutcome::Handled,
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, anchor: Rect, theme: Theme) {
+    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
         if self.options.is_empty() {
             return;
         }
 
+        let theme = ctx.ui().theme();
+        let anchor = self.anchor.unwrap_or_else(|| default_anchor(area));
         let popup = popup_area(area, anchor, &self.title, &self.options);
         frame.render_widget(Clear, popup);
 
@@ -106,12 +117,21 @@ impl<T> Popup for Dropdown<T> {
         frame.render_stateful_widget(list, inner, &mut list_state);
     }
 
-    fn hints(&self) -> Vec<KeyHint> {
+    fn keybindings(&self) -> Vec<KeyHint> {
         vec![
             KeyHint::new("↑/↓", t!("common.select")),
             KeyHint::new("ENTER", t!("common.select")),
             KeyHint::new("ESC", t!("common.cancel")),
         ]
+    }
+}
+
+fn default_anchor(area: Rect) -> Rect {
+    Rect {
+        x: area.x,
+        y: area.bottom().saturating_sub(2),
+        width: 1,
+        height: 1,
     }
 }
 

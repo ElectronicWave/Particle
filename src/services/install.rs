@@ -85,6 +85,15 @@ impl InstallService {
             .collect()
     }
 
+    pub fn latest_session(&self) -> Option<InstallSessionId> {
+        self.sessions
+            .lock()
+            .expect("install sessions lock poisoned")
+            .keys()
+            .next_back()
+            .copied()
+    }
+
     pub fn dismiss(&self, id: InstallSessionId) -> bool {
         let removed = {
             let mut sessions = self

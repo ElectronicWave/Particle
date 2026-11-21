@@ -1,14 +1,7 @@
-use ratail::KeyHint;
+use ratail::{KeyHint, Modal, ModalOutcome};
 use ratatui::{Frame, crossterm::event::KeyEvent, layout::Rect};
 
-use crate::{
-    t,
-    theme::Theme,
-    widgets::{
-        dropdown::Dropdown,
-        popup::{Popup, PopupEvent},
-    },
-};
+use crate::{services::Services, t, widgets::dropdown::Dropdown};
 
 /// A two-option dropdown that only yields its value after explicit confirmation.
 #[derive(Debug)]
@@ -33,26 +26,26 @@ impl<T> Confirmation<T> {
     }
 }
 
-impl<T> Popup for Confirmation<T> {
+impl<T> Modal<Services> for Confirmation<T> {
     type Value = T;
 
-    fn handle_key(&mut self, key: KeyEvent) -> PopupEvent<T> {
-        match self.prompt.handle_key(key) {
-            PopupEvent::Completed(true) => {
-                PopupEvent::Completed(self.value.take().expect("confirmation completed twice"))
+    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ModalOutcome<T> {
+        match self.prompt.on_key(ctx, key) {
+            ModalOutcome::Completed(true) => {
+                ModalOutcome::Completed(self.value.take().expect("confirmation completed twice"))
             }
-            PopupEvent::Completed(false) => PopupEvent::Cancelled,
-            PopupEvent::Cancelled => PopupEvent::Cancelled,
-            PopupEvent::Handled => PopupEvent::Handled,
-            PopupEvent::Ignored => PopupEvent::Ignored,
+            ModalOutcome::Completed(false) => ModalOutcome::Cancelled,
+            ModalOutcome::Cancelled => ModalOutcome::Cancelled,
+            ModalOutcome::Handled => ModalOutcome::Handled,
+            ModalOutcome::Ignored => ModalOutcome::Ignored,
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, anchor: Rect, theme: Theme) {
-        self.prompt.render(frame, area, anchor, theme);
+    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+        self.prompt.render(ctx, frame, area);
     }
 
-    fn hints(&self) -> Vec<KeyHint> {
-        self.prompt.hints()
+    fn keybindings(&self) -> Vec<KeyHint> {
+        self.prompt.keybindings()
     }
 }

@@ -6,9 +6,9 @@ mod loader_versions;
 use crate::t;
 use elemental::{
     core::minecraft::MinecraftVersionId,
-    driver::{descriptors::VANILLA_DRIVER, driver::DriverDescriptor},
+    driver::{driver::DriverDescriptor, loader_version::LoaderVersionId},
 };
-use ratail::KeyHint;
+use ratail::{KeyHint, NavAction, Navigator, Page, PageEvent, Router};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
@@ -18,19 +18,58 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use self::{
-    filter::VersionFilter,
-    game_versions::GameVersionsScreen,
-    instance_name::{InstanceNameScreen, NameAction},
-    loader_versions::{LoaderSelection, LoaderVersionsScreen},
-};
+use self::filter::VersionFilter;
+use self::game_versions::GameVersionsPage;
+use self::instance_name::InstanceNamePage;
+use self::loader_versions::LoaderVersionsPage;
 use crate::drivers as driver_display;
-use crate::pages::content::{Content, ContentEvent};
 use crate::pages::route::Route;
-use crate::services::Services;
+use crate::services::{InstallSessionId, Services};
 use crate::theme::Theme;
 use crate::widgets::cycle::Cycle;
 use crate::widgets::tabs::{TabBar, cycle_index, tab_step};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LoaderSelection {
+    game: MinecraftVersionId,
+    loader: Option<LoaderVersionId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum CatalogRoute {
+    GameVersions {
+        driver: usize,
+        filter: VersionFilter,
+    },
+    LoaderVersions {
+        driver: usize,
+        game: MinecraftVersionId,
+        filter: VersionFilter,
+    },
+    /// The final installation step: name the instance and start the install.
+    InstanceName {
+        driver: usize,
+        selection: LoaderSelection,
+    },
+}
+
+struct CatalogRouter;
+
+impl Router<Services, CatalogRoute> for CatalogRouter {
+    fn create(
+        &mut self,
+        route: &CatalogRoute,
+        _ctx: &Services,
+    ) -> Box<dyn Page<Services, CatalogRoute>> {
+        match route {
+            CatalogRoute::GameVersions { .. } => Box::new(GameVersionsPage::default()),
+            CatalogRoute::LoaderVersions { .. } => Box::new(LoaderVersionsPage::default()),
+            CatalogRoute::InstanceName { driver, selection } => {
+                Box::new(InstanceNamePage::new(*driver, selection.clone()))
+            }
+        }
+    }
+}
 
 fn catalog_hints() -> Vec<KeyHint> {
     vec![
@@ -58,226 +97,126 @@ fn name_hints() -> Vec<KeyHint> {
     ]
 }
 
-enum ScreenAction {
-    Ignored,
-    Handled,
-    OpenLoader(MinecraftVersionId),
-    Back,
-    Selected(LoaderSelection),
-}
-
-#[derive(Debug)]
-enum Screen {
-    GameVersions(GameVersionsScreen),
-    LoaderVersions(LoaderVersionsScreen),
-    InstanceName(InstanceNameScreen),
-}
-
-#[derive(Debug)]
 pub struct CatalogContent {
-    driver: usize,
-    filter: VersionFilter,
-    selection: Option<LoaderSelection>,
-    screen: Screen,
-}
-
-impl Default for CatalogContent {
-    fn default() -> Self {
-        Self {
-            driver: 0,
-            filter: VersionFilter::default(),
-            selection: None,
-            screen: Screen::GameVersions(GameVersionsScreen::default()),
-        }
-    }
-}
-
-impl Content for CatalogContent {
-    fn init(&mut self, ctx: &Services) {
-        ctx.catalog()
-            .load_versions(ctx.catalog().drivers()[self.driver]);
-    }
-
-    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
-        let theme = ctx.ui().theme();
-        let [driver_area, secondary_area, body_area] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ])
-        .areas(area);
-        render_driver_tabs(
-            frame,
-            driver_area,
-            ctx.catalog().drivers(),
-            self.driver,
-            theme,
-        );
-
-        let driver = ctx.catalog().drivers()[self.driver];
-        match &mut self.screen {
-            Screen::GameVersions(screen) => {
-                render_filter_tabs(frame, secondary_area, self.filter, theme);
-                screen.render(ctx, frame, body_area, driver, self.filter);
-            }
-            Screen::LoaderVersions(screen) => {
-                loader_versions::render_header(frame, secondary_area, screen.game(), theme);
-                screen.render(ctx, frame, body_area, driver, self.selection.as_ref());
-            }
-            Screen::InstanceName(screen) => {
-                if let Some(selection) = &self.selection {
-                    render_flow_header(
-                        frame,
-                        secondary_area,
-                        &selection.game.to_string(),
-                        &t!("catalog.instance_name_suffix"),
-                        theme,
-                    );
-                }
-                screen.render(frame, body_area, theme);
-            }
-        }
-    }
-
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
-        if matches!(
-            &self.screen,
-            Screen::GameVersions(_) | Screen::LoaderVersions(_)
-        ) && let Some(step) = tab_step(key)
-        {
-            let drivers = ctx.catalog().drivers();
-            let next = cycle_index(drivers.len(), self.driver, step);
-            self.switch_driver(ctx, next);
-            return ContentEvent::Handled;
-        }
-
-        if matches!(&self.screen, Screen::GameVersions(_)) {
-            match key.code {
-                KeyCode::Left => {
-                    self.cycle_filter(false);
-                    return ContentEvent::Handled;
-                }
-                KeyCode::Right => {
-                    self.cycle_filter(true);
-                    return ContentEvent::Handled;
-                }
-                _ => {}
-            }
-        }
-
-        let driver = ctx.catalog().drivers()[self.driver];
-        match &mut self.screen {
-            Screen::GameVersions(screen) => {
-                let action = screen.on_key(ctx, key, driver, self.filter);
-                match action {
-                    ScreenAction::Ignored => ContentEvent::Ignored,
-                    ScreenAction::Handled => ContentEvent::Handled,
-                    ScreenAction::OpenLoader(game) => {
-                        if driver == VANILLA_DRIVER {
-                            self.open_instance_name(LoaderSelection { game, loader: None });
-                        } else {
-                            self.screen =
-                                Screen::LoaderVersions(LoaderVersionsScreen::new(game.clone()));
-                            ctx.catalog().load_loader_versions(driver, game);
-                        }
-                        ContentEvent::Handled
-                    }
-                    ScreenAction::Back | ScreenAction::Selected(_) => ContentEvent::Handled,
-                }
-            }
-            Screen::LoaderVersions(screen) => {
-                let action = screen.on_key(ctx, key, driver);
-                match action {
-                    ScreenAction::Ignored => ContentEvent::Ignored,
-                    ScreenAction::Handled => ContentEvent::Handled,
-                    ScreenAction::Back => {
-                        self.screen = Screen::GameVersions(GameVersionsScreen::default());
-                        ContentEvent::Handled
-                    }
-                    ScreenAction::Selected(selection) => {
-                        self.open_instance_name(selection);
-                        ContentEvent::Handled
-                    }
-                    ScreenAction::OpenLoader(_) => ContentEvent::Handled,
-                }
-            }
-            Screen::InstanceName(screen) => match screen.on_key(key) {
-                NameAction::Ignored => ContentEvent::Ignored,
-                NameAction::Handled => ContentEvent::Handled,
-                NameAction::Cancel => {
-                    self.leave_instance_name();
-                    ContentEvent::Handled
-                }
-                NameAction::Submit(instance_name) => {
-                    if let Some(selection) = &self.selection {
-                        ctx.install().start(
-                            instance_name,
-                            driver,
-                            selection.game.clone(),
-                            selection.loader.clone(),
-                        );
-                        return ContentEvent::Navigate(Route::Downloads);
-                    }
-                    ContentEvent::Handled
-                }
-            },
-        }
-    }
-
-    fn keybindings(&self) -> Vec<KeyHint> {
-        match &self.screen {
-            Screen::GameVersions(_) => catalog_hints(),
-            Screen::LoaderVersions(_) => loader_hints(),
-            Screen::InstanceName(_) => name_hints(),
-        }
-    }
+    nav: Navigator<Services, CatalogRoute, CatalogRouter>,
+    seen_session: Option<InstallSessionId>,
 }
 
 impl CatalogContent {
-    fn switch_driver(&mut self, ctx: &Services, driver: usize) {
-        if driver == self.driver {
-            return;
-        }
-
-        self.driver = driver;
-        self.selection = None;
-        self.screen = Screen::GameVersions(GameVersionsScreen::default());
-        ctx.catalog().load_versions(ctx.catalog().drivers()[driver]);
-    }
-
-    fn cycle_filter(&mut self, forward: bool) {
-        if let Some(filter) = Cycle::new(&VersionFilter::ORDER).step(&self.filter, forward) {
-            self.filter = *filter;
-        }
-        if let Screen::GameVersions(screen) = &mut self.screen {
-            screen.reset();
+    pub fn new(ctx: &Services) -> Self {
+        Self {
+            nav: Navigator::new(
+                CatalogRouter,
+                CatalogRoute::GameVersions {
+                    driver: 0,
+                    filter: VersionFilter::default(),
+                },
+                ctx,
+            ),
+            seen_session: ctx.install().latest_session(),
         }
     }
 
-    fn open_instance_name(&mut self, selection: LoaderSelection) {
-        let default = default_instance_name(&selection);
-        self.selection = Some(selection);
-        self.screen = Screen::InstanceName(InstanceNameScreen::new(default));
+    fn current_driver(&self) -> Option<usize> {
+        match self.nav.current_route()? {
+            CatalogRoute::GameVersions { driver, .. }
+            | CatalogRoute::LoaderVersions { driver, .. }
+            | CatalogRoute::InstanceName { driver, .. } => Some(*driver),
+        }
     }
 
-    fn leave_instance_name(&mut self) {
-        match self.selection.take() {
-            Some(selection) if selection.loader.is_some() => {
-                let game = selection.game.clone();
-                self.selection = Some(selection);
-                self.screen = Screen::LoaderVersions(LoaderVersionsScreen::new(game));
+    fn cycle_filter(filter: VersionFilter, forward: bool) -> VersionFilter {
+        Cycle::new(&VersionFilter::ORDER)
+            .step(&filter, forward)
+            .copied()
+            .unwrap_or(filter)
+    }
+
+    fn handle_header(&mut self, ctx: &Services, key: KeyEvent) -> Option<PageEvent<Route>> {
+        let (driver, filter, game_versions) = match self.nav.current_route()? {
+            CatalogRoute::GameVersions { driver, filter } => (*driver, *filter, true),
+            CatalogRoute::LoaderVersions { driver, filter, .. } => (*driver, *filter, false),
+            CatalogRoute::InstanceName { .. } => return None,
+        };
+
+        if let Some(step) = tab_step(key) {
+            let next = cycle_index(ctx.catalog().drivers().len(), driver, step);
+            if next == driver {
+                return Some(PageEvent::Handled);
             }
-            _ => {
-                self.screen = Screen::GameVersions(GameVersionsScreen::default());
-            }
+            self.nav.reset(
+                CatalogRoute::GameVersions {
+                    driver: next,
+                    filter,
+                },
+                ctx,
+            );
+            return Some(PageEvent::Handled);
         }
+
+        if !game_versions {
+            return None;
+        }
+        if !matches!(key.code, KeyCode::Left | KeyCode::Right) {
+            return None;
+        }
+        let filter = Self::cycle_filter(filter, key.code == KeyCode::Right);
+        self.nav
+            .reset(CatalogRoute::GameVersions { driver, filter }, ctx);
+        Some(PageEvent::Handled)
     }
 }
 
-fn default_instance_name(selection: &LoaderSelection) -> String {
-    match &selection.loader {
-        Some(loader) => format!("{}-{}", selection.game, loader),
-        None => selection.game.to_string(),
+impl Page<Services> for CatalogContent {
+    fn resume(&mut self, ctx: &Services, _route: &Route) {
+        if self.seen_session.is_none() {
+            self.seen_session = ctx.install().latest_session();
+        }
+        self.nav.resume_current(ctx);
+    }
+
+    fn pause(&mut self, ctx: &Services, _route: &Route) {
+        self.nav.pause_current(ctx);
+    }
+
+    fn dispose(&mut self, ctx: &Services, _route: &Route) {
+        self.nav.dispose_all(ctx);
+    }
+
+    fn render(&mut self, ctx: &Services, _route: &Route, frame: &mut Frame, area: Rect) {
+        let theme = ctx.ui().theme();
+        let [driver_area, body_area] =
+            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+        let driver = self.current_driver().unwrap_or_default();
+        render_driver_tabs(frame, driver_area, ctx.catalog().drivers(), driver, theme);
+        self.nav.render(ctx, frame, body_area);
+    }
+
+    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
+        if let Some(event) = self.handle_header(ctx, key) {
+            return event;
+        }
+        if self.nav.handle_key(ctx, key) {
+            PageEvent::Handled
+        } else {
+            PageEvent::Ignored
+        }
+    }
+
+    fn poll(&mut self, ctx: &Services, _route: &Route) -> Option<NavAction<Route>> {
+        let latest = ctx.install().latest_session();
+        if latest != self.seen_session {
+            self.seen_session = latest;
+            if latest.is_some() {
+                return Some(NavAction::Replace(Route::Downloads));
+            }
+        }
+        self.nav.poll_current(ctx);
+        None
+    }
+
+    fn keybindings(&self, _route: &Route) -> Vec<KeyHint> {
+        self.nav.keybindings()
     }
 }
 
@@ -300,10 +239,7 @@ fn render_driver_tabs(
         .iter()
         .map(|driver| driver_display::display_name(*driver))
         .collect::<Vec<_>>();
-    let labels = titles
-        .iter()
-        .map(|title| title.as_ref())
-        .collect::<Vec<&str>>();
+    let labels = titles.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
     frame.render_widget(TabBar::new(theme, &labels, selected), area);
 }
 
@@ -317,6 +253,5 @@ fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter, th
         .iter()
         .position(|filter| *filter == selected)
         .unwrap_or(0);
-
     frame.render_widget(TabBar::new(theme, &labels, index).secondary(), area);
 }

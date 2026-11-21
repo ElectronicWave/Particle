@@ -1,6 +1,6 @@
 use crate::t;
 use elemental::launcher::{InspectReport, Instance};
-use ratail::{KeyHint, SnapshotStatus};
+use ratail::{KeyHint, ModalHost, PageEvent, SnapshotStatus, WithModal};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -11,14 +11,11 @@ use ratatui::{
 };
 
 use crate::drivers;
-use crate::pages::content::{Content, ContentEvent, render_loading, render_message};
+use crate::pages::content::{render_message, render_snapshot};
+use crate::pages::route::Route;
 use crate::services::{LaunchOutcome, Services};
 use crate::theme::Theme;
-use crate::widgets::{
-    confirm::Confirmation,
-    list::ListSelection,
-    popup::{Popup, PopupEvent},
-};
+use crate::widgets::{confirm::Confirmation, list::ListSelection};
 
 fn instance_hints() -> Vec<KeyHint> {
     vec![
@@ -33,108 +30,73 @@ fn instance_hints() -> Vec<KeyHint> {
 #[derive(Debug, Default)]
 pub struct InstancesContent {
     list: ListSelection,
-    confirm: Option<Confirmation<String>>,
 }
 
-impl Content for InstancesContent {
-    fn init(&mut self, ctx: &Services) {
+impl WithModal<Services> for InstancesContent {
+    fn init(&mut self, ctx: &Services, _route: &Route, _modals: &mut ModalHost<Services, Self>) {
         ctx.instances().load();
     }
 
-    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+    fn render(&mut self, ctx: &Services, _route: &Route, frame: &mut Frame, area: Rect) {
         let theme = ctx.ui().theme();
         let [body_area, status_area] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
 
         let snapshot = ctx.instances().snapshot();
-        let view = snapshot.view();
-        match (view.data, view.error) {
-            (Some(report), Some(error)) => {
-                let [error_area, report_area] =
-                    Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(body_area);
-                render_message(
-                    frame,
-                    error_area,
-                    t!("common.error", error = error).as_ref(),
-                );
-                self.render_report(report, frame, report_area, theme);
-            }
-            (Some(report), None) => self.render_report(report, frame, body_area, theme),
-            (None, Some(error)) => {
-                render_message(frame, body_area, t!("common.error", error = error).as_ref())
-            }
-            (None, None) if view.status == SnapshotStatus::Cancelled => {
-                render_message(frame, body_area, t!("common.cancelled").as_ref())
-            }
-            (None, None) => render_loading(ctx, frame, body_area, t!("instances.loading").as_ref()),
-        }
-
+        render_snapshot(
+            ctx,
+            &snapshot.view(),
+            t!("instances.loading").as_ref(),
+            frame,
+            body_area,
+            |report, frame, area| self.render_report(report, frame, area, theme),
+        );
         render_launch_status(ctx, frame, status_area, theme);
-
-        if let Some(confirm) = &self.confirm {
-            let anchor = Rect {
-                x: area.x,
-                y: area.bottom().saturating_sub(1),
-                width: 1,
-                height: 1,
-            };
-            confirm.render(frame, area, anchor, theme);
-        }
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
-        if let Some(confirm) = &mut self.confirm {
-            match confirm.handle_key(key) {
-                PopupEvent::Ignored => return ContentEvent::Ignored,
-                PopupEvent::Handled => return ContentEvent::Handled,
-                PopupEvent::Cancelled => {
-                    self.confirm = None;
-                    return ContentEvent::Handled;
-                }
-                PopupEvent::Completed(instance_name) => {
-                    self.confirm = None;
-                    ctx.instances().remove(instance_name);
-                    return ContentEvent::Handled;
-                }
-            }
-        }
-
+    fn on_key(
+        &mut self,
+        ctx: &Services,
+        _route: &Route,
+        modals: &mut ModalHost<Services, Self>,
+        key: KeyEvent,
+    ) -> PageEvent<Route> {
         match key.code {
             KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
                 self.list.handle_key(key.code);
-                ContentEvent::Handled
+                PageEvent::Handled
             }
             KeyCode::Enter => {
                 if let Some(instance) = self.selected_instance(ctx) {
                     ctx.launch().launch_instance(instance);
                 }
-                ContentEvent::Handled
+                PageEvent::Handled
             }
             KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ctx.instances().load();
-                ContentEvent::Handled
+                PageEvent::Handled
             }
             KeyCode::Char('d') | KeyCode::Delete
                 if !key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
                 if let Some(instance_name) = self.selected_instance(ctx) {
-                    self.confirm = Some(Confirmation::open(
-                        t!("instances.confirm_remove", instance = instance_name.clone())
-                            .into_owned(),
-                        instance_name,
-                    ));
+                    let title = t!("instances.confirm_remove", instance = instance_name.clone())
+                        .into_owned();
+                    modals.open(
+                        Confirmation::open(title, instance_name),
+                        |_page, ctx, _modals, name| {
+                            ctx.instances().remove(name);
+                        },
+                    );
                 }
-                ContentEvent::Handled
+                PageEvent::Handled
             }
-            _ => ContentEvent::Ignored,
+            _ => PageEvent::Ignored,
         }
     }
 
-    fn keybindings(&self) -> Vec<KeyHint> {
-        match &self.confirm {
-            Some(confirm) => confirm.hints(),
-            None => instance_hints(),
-        }
+    fn keybindings(&self, _route: &Route) -> Vec<KeyHint> {
+        instance_hints()
     }
 }
 

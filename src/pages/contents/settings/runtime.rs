@@ -4,7 +4,7 @@ use std::{
 };
 
 use elemental::core::runtime::distribution::Distribution;
-use ratail::{KeyHint, SnapshotStatus};
+use ratail::{KeyHint, Modal, ModalOutcome, SnapshotStatus};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -21,7 +21,6 @@ use crate::widgets::{
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
     list::ListSelection,
-    popup::{Popup, PopupEvent},
     spinner,
 };
 
@@ -83,25 +82,26 @@ impl SettingsPane for RuntimePane {
         ];
 
         pane::render_rows(frame, areas.body, rows, &mut self.selected, theme);
-        let anchor = pane::row_anchor(areas.body);
-        if let Some(popup) = &self.runtime_dropdown {
-            popup.render(frame, areas.full, anchor, theme);
+        let anchor = pane::row_anchor(areas.body, self.selected.index());
+        if let Some(popup) = &mut self.runtime_dropdown {
+            popup.set_anchor(anchor);
+            popup.render(ctx, frame, areas.full);
         }
-        if let Some(popup) = &self.picker {
-            popup.render(frame, areas.full, anchor, theme);
+        if let Some(popup) = &mut self.picker {
+            popup.render(ctx, frame, areas.full);
         }
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {
         if let Some(popup) = &mut self.picker {
-            match popup.handle_key(key) {
-                PopupEvent::Ignored => {}
-                PopupEvent::Handled => return PaneEvent::Handled,
-                PopupEvent::Cancelled => {
+            match popup.on_key(ctx, key) {
+                ModalOutcome::Ignored => {}
+                ModalOutcome::Handled => return PaneEvent::Handled,
+                ModalOutcome::Cancelled => {
                     self.picker = None;
                     return PaneEvent::Handled;
                 }
-                PopupEvent::Completed(path) => {
+                ModalOutcome::Completed(path) => {
                     self.picker = None;
                     if self.add_runtime(ctx, path) {
                         self.runtime_dropdown = None;
@@ -128,14 +128,14 @@ impl SettingsPane for RuntimePane {
                 .runtime_dropdown
                 .as_mut()
                 .expect("runtime dropdown checked above");
-            match popup.handle_key(key) {
-                PopupEvent::Ignored => {}
-                PopupEvent::Handled => return PaneEvent::Handled,
-                PopupEvent::Cancelled => {
+            match popup.on_key(ctx, key) {
+                ModalOutcome::Ignored => {}
+                ModalOutcome::Handled => return PaneEvent::Handled,
+                ModalOutcome::Cancelled => {
                     self.runtime_dropdown = None;
                     return PaneEvent::Handled;
                 }
-                PopupEvent::Completed(choice) => {
+                ModalOutcome::Completed(choice) => {
                     self.select_runtime(ctx, choice);
                     return PaneEvent::Handled;
                 }
@@ -173,10 +173,10 @@ impl SettingsPane for RuntimePane {
 
     fn hints(&self) -> Vec<KeyHint> {
         if let Some(popup) = &self.picker {
-            return popup.hints();
+            return popup.keybindings();
         }
         if let Some(popup) = &self.runtime_dropdown {
-            let mut hints = popup.hints();
+            let mut hints = popup.keybindings();
             if self.selected_custom_runtime_hint() {
                 hints.push(KeyHint::new("DEL", t!("settings.remove_custom_runtime")));
             }

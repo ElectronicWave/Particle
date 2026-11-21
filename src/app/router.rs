@@ -1,6 +1,5 @@
-use ratail::{Page, Router};
+use ratail::{ModalPage, Page, Router};
 
-use crate::pages::content::Content;
 use crate::pages::contents::accounts::AccountsContent;
 use crate::pages::contents::catalog::CatalogContent;
 use crate::pages::contents::downloads::DownloadsContent;
@@ -15,13 +14,13 @@ use crate::services::Services;
 pub struct AppRouter;
 
 impl Router<Services> for AppRouter {
-    fn create(&mut self, route: &Route, _ctx: &Services) -> Box<dyn Page<Services>> {
+    fn create(&mut self, route: &Route, ctx: &Services) -> Box<dyn Page<Services>> {
         match route {
             Route::Home => boxed(HomeContent::default()),
-            Route::Instances => boxed(InstancesContent::default()),
-            Route::Catalog => boxed(CatalogContent::default()),
+            Route::Instances => boxed(ModalPage::new(InstancesContent::default())),
+            Route::Catalog => boxed(CatalogContent::new(ctx)),
             Route::Downloads => boxed(DownloadsContent::default()),
-            Route::Accounts => boxed(AccountsContent::default()),
+            Route::Accounts => boxed(AccountsContent::new(ctx)),
             Route::Settings => boxed(SettingsContent::default()),
         }
     }
@@ -29,7 +28,7 @@ impl Router<Services> for AppRouter {
 
 fn boxed<C>(content: C) -> Box<dyn Page<Services>>
 where
-    C: Content + 'static,
+    C: Page<Services> + 'static,
 {
     Box::new(ShellPage::new(content))
 }

@@ -7,7 +7,6 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::pages::content::{Content, ContentEvent};
 use crate::pages::route::Route;
 use crate::services::Services;
 use crate::widgets::panel;
@@ -60,15 +59,27 @@ impl<C> ShellPage<C> {
     }
 }
 
-impl<C: Content + 'static> Page<Services> for ShellPage<C> {
-    fn init(&mut self, ctx: &Services, _route: &Route) {
-        self.content.init(ctx);
+impl<C: Page<Services> + 'static> Page<Services> for ShellPage<C> {
+    fn init(&mut self, ctx: &Services, route: &Route) {
+        self.content.init(ctx, route);
     }
 
-    fn keybindings(&self, _route: &Route) -> Vec<KeyHint> {
+    fn resume(&mut self, ctx: &Services, route: &Route) {
+        self.content.resume(ctx, route);
+    }
+
+    fn pause(&mut self, ctx: &Services, route: &Route) {
+        self.content.pause(ctx, route);
+    }
+
+    fn dispose(&mut self, ctx: &Services, route: &Route) {
+        self.content.dispose(ctx, route);
+    }
+
+    fn keybindings(&self, route: &Route) -> Vec<KeyHint> {
         match self.focus {
             Focus::Sidebar => sidebar_hints(),
-            Focus::Content => self.content.keybindings(),
+            Focus::Content => self.content.keybindings(route),
         }
     }
 
@@ -79,16 +90,18 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
 
         match self.focus {
             Focus::Sidebar => self.on_sidebar_key(route, key),
-            Focus::Content => match self.content.on_key(ctx, key) {
-                ContentEvent::Handled => PageEvent::Handled,
-                ContentEvent::Navigate(route) => PageEvent::Navigate(NavAction::Replace(route)),
-                ContentEvent::Ignored if key.code == KeyCode::Esc => {
+            Focus::Content => match self.content.on_key(ctx, route, key) {
+                PageEvent::Ignored if key.code == KeyCode::Esc => {
                     self.focus = Focus::Sidebar;
                     PageEvent::Handled
                 }
-                ContentEvent::Ignored => PageEvent::Ignored,
+                event => event,
             },
         }
+    }
+
+    fn poll(&mut self, ctx: &Services, route: &Route) -> Option<NavAction<Route>> {
+        self.content.poll(ctx, route)
     }
 
     fn render(&mut self, ctx: &Services, route: &Route, frame: &mut Frame, area: Rect) {
@@ -115,7 +128,7 @@ impl<C: Content + 'static> Page<Services> for ShellPage<C> {
             sidebar_area,
         );
         let inner = panel::render(frame, content_area, theme, self.focus == Focus::Content);
-        self.content.render(ctx, frame, inner);
+        self.content.render(ctx, route, frame, inner);
     }
 }
 

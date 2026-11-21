@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 
-use crate::t;
 use elemental::{
     core::minecraft::{MinecraftVersion, MinecraftVersionId, MinecraftVersionKind, VersionStage},
     driver::catalog::GameVersion,
 };
+
+use crate::t;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) enum VersionFilter {

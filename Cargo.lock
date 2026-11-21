@@ -639,10 +639,10 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "elemental-core"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#d2fdae0ab8d81518569b2580ef95d8fed00415dd"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#c6377888917ab5860b595a21662f3c663d6fc286"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dirs",
  "elemental-schema",
  "erased-serde",
@@ -667,7 +667,7 @@ dependencies = [
 [[package]]
 name = "elemental-driver"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#d2fdae0ab8d81518569b2580ef95d8fed00415dd"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#c6377888917ab5860b595a21662f3c663d6fc286"
 dependencies = [
  "async-trait",
  "elemental-core",
@@ -686,7 +686,7 @@ dependencies = [
 [[package]]
 name = "elemental-infra"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#d2fdae0ab8d81518569b2580ef95d8fed00415dd"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#c6377888917ab5860b595a21662f3c663d6fc286"
 dependencies = [
  "async-trait",
  "futures",
@@ -703,7 +703,7 @@ dependencies = [
 [[package]]
 name = "elemental-kit"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#d2fdae0ab8d81518569b2580ef95d8fed00415dd"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#c6377888917ab5860b595a21662f3c663d6fc286"
 dependencies = [
  "elemental-core",
  "elemental-driver",
@@ -716,7 +716,7 @@ dependencies = [
 [[package]]
 name = "elemental-launcher"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#d2fdae0ab8d81518569b2580ef95d8fed00415dd"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#c6377888917ab5860b595a21662f3c663d6fc286"
 dependencies = [
  "elemental-core",
  "elemental-driver",
@@ -735,7 +735,7 @@ dependencies = [
 [[package]]
 name = "elemental-schema"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#d2fdae0ab8d81518569b2580ef95d8fed00415dd"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#c6377888917ab5860b595a21662f3c663d6fc286"
 dependencies = [
  "jiff",
  "serde",
@@ -745,7 +745,7 @@ dependencies = [
 [[package]]
 name = "elemental-shared"
 version = "0.3.0"
-source = "git+https://github.com/ElectronicWave/Elemental?branch=main#d2fdae0ab8d81518569b2580ef95d8fed00415dd"
+source = "git+https://github.com/ElectronicWave/Elemental?branch=main#c6377888917ab5860b595a21662f3c663d6fc286"
 dependencies = [
  "dirs",
  "serde",
@@ -1790,8 +1790,7 @@ dependencies = [
 [[package]]
 name = "nidhogg"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "668159b151aaf646bbb564b55bdd9e58163ddaac13a4ad9891d0c597f4ecc19f"
+source = "git+https://github.com/ElectronicWave/nidhogg?branch=master#2131a92e150d17312b00026ff45cf82475871102"
 dependencies = [
  "base64 0.23.1",
  "md-5",
@@ -2025,6 +2024,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "elemental-kit",
+ "percent-encoding",
  "png",
  "process-wrap",
  "ratail",
@@ -2435,11 +2435,12 @@ checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 [[package]]
 name = "ratail"
 version = "0.1.0"
-source = "git+https://github.com/ElectronicWave/ratail#fe3e5a72c4769a425551cb180bd7edfa39c4ad42"
+source = "git+https://github.com/ElectronicWave/ratail#ab17e55ea89a9b97ac2138d1d05d2ff13ca8ce91"
 dependencies = [
  "arc-swap",
  "crossterm",
  "futures-core",
+ "lru",
  "ratatui",
  "tokio",
 ]

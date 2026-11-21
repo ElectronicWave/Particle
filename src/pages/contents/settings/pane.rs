@@ -119,10 +119,11 @@ pub(super) fn render_rows(
     frame.render_stateful_widget(list, area, selected.state_mut());
 }
 
-pub(super) fn row_anchor(area: Rect) -> Rect {
+pub(super) fn row_anchor(area: Rect, index: usize) -> Rect {
+    let offset = u16::try_from(index).unwrap_or(u16::MAX);
     Rect {
         x: area.x + LABEL_WIDTH as u16,
-        y: area.y,
+        y: area.y.saturating_add(offset),
         width: 1,
         height: 1,
     }

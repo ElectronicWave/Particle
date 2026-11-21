@@ -6,7 +6,6 @@ pub mod filepicker;
 pub mod list;
 pub mod panel;
 pub mod png;
-pub mod popup;
 pub mod sidebar;
 pub mod skin;
 pub mod spinner;

@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use ratail::KeyHint;
+use ratail::{KeyHint, Modal, ModalOutcome};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -14,10 +14,10 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
+use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
 use crate::widgets::list::ListSelection;
-use crate::widgets::popup::{Popup, PopupEvent};
 use crate::widgets::text_edit::{EditEvent, TextEdit};
 
 const MIN_WIDTH: u16 = 48;
@@ -134,31 +134,31 @@ impl FilePicker {
             .and_then(|index| self.entries.get(*index))
     }
 
-    fn activate(&mut self) -> PopupEvent<PathBuf> {
+    fn activate(&mut self) -> ModalOutcome<PathBuf> {
         let Some(entry) = self.selected_entry().cloned() else {
-            return PopupEvent::Handled;
+            return ModalOutcome::Handled;
         };
 
         match entry.kind {
             EntryKind::Parent | EntryKind::Directory => {
                 self.load(entry.path);
-                PopupEvent::Handled
+                ModalOutcome::Handled
             }
             EntryKind::File if self.mode == FilePickerMode::File => {
-                PopupEvent::Completed(entry.path)
+                ModalOutcome::Completed(entry.path)
             }
-            EntryKind::File => PopupEvent::Handled,
+            EntryKind::File => ModalOutcome::Handled,
         }
     }
 
-    fn confirm(&mut self) -> PopupEvent<PathBuf> {
+    fn confirm(&mut self) -> ModalOutcome<PathBuf> {
         match self.mode {
-            FilePickerMode::Directory => PopupEvent::Completed(self.directory.clone()),
+            FilePickerMode::Directory => ModalOutcome::Completed(self.directory.clone()),
             FilePickerMode::File => self
                 .selected_entry()
                 .filter(|entry| entry.kind == EntryKind::File)
-                .map(|entry| PopupEvent::Completed(entry.path.clone()))
-                .unwrap_or(PopupEvent::Handled),
+                .map(|entry| ModalOutcome::Completed(entry.path.clone()))
+                .unwrap_or(ModalOutcome::Handled),
         }
     }
 
@@ -169,56 +169,57 @@ impl FilePicker {
     }
 }
 
-impl Popup for FilePicker {
+impl Modal<Services> for FilePicker {
     type Value = PathBuf;
 
-    fn handle_key(&mut self, key: KeyEvent) -> PopupEvent<PathBuf> {
+    fn on_key(&mut self, _ctx: &Services, key: KeyEvent) -> ModalOutcome<PathBuf> {
         if key
             .modifiers
             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
-            return PopupEvent::Ignored;
+            return ModalOutcome::Ignored;
         }
 
         if let Some(filter) = self.filter.as_mut() {
             if self.selected.handle_key(key.code) {
-                return PopupEvent::Handled;
+                return ModalOutcome::Handled;
             }
             return match filter.handle_key(key) {
                 EditEvent::Changed => {
                     self.rebuild_visible();
-                    PopupEvent::Handled
+                    ModalOutcome::Handled
                 }
                 EditEvent::Submit => self.activate(),
                 EditEvent::Cancel => {
                     self.clear_filter();
-                    PopupEvent::Handled
+                    ModalOutcome::Handled
                 }
-                EditEvent::Unhandled => PopupEvent::Handled,
+                EditEvent::Unhandled => ModalOutcome::Handled,
             };
         }
 
         match key.code {
             KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
                 self.selected.handle_key(key.code);
-                PopupEvent::Handled
+                ModalOutcome::Handled
             }
             KeyCode::Left => {
                 self.go_parent();
-                PopupEvent::Handled
+                ModalOutcome::Handled
             }
             KeyCode::Right | KeyCode::Enter => self.activate(),
             KeyCode::Char(' ') => self.confirm(),
             KeyCode::Char('/') => {
                 self.filter = Some(TextEdit::new(String::new()));
-                PopupEvent::Handled
+                ModalOutcome::Handled
             }
-            KeyCode::Esc => PopupEvent::Cancelled,
-            _ => PopupEvent::Handled,
+            KeyCode::Esc => ModalOutcome::Cancelled,
+            _ => ModalOutcome::Handled,
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, _anchor: Rect, theme: Theme) {
+    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+        let theme = ctx.ui().theme();
         let popup = popup_area(area);
         frame.render_widget(Clear, popup);
 
@@ -295,7 +296,7 @@ impl Popup for FilePicker {
         frame.render_widget(Paragraph::new(footer), footer_area);
     }
 
-    fn hints(&self) -> Vec<KeyHint> {
+    fn keybindings(&self) -> Vec<KeyHint> {
         if self.filter.is_some() {
             vec![
                 KeyHint::new("↑/↓", t!("common.select")),

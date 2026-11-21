@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::PathBuf};
 
-use ratail::{Context as _, KeyHint};
+use ratail::{Context as _, KeyHint, Modal, ModalOutcome};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
@@ -17,7 +17,6 @@ use crate::widgets::{
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
     list::ListSelection,
-    popup::{Popup, PopupEvent},
     text_edit::{EditEvent, TextEdit},
 };
 
@@ -61,25 +60,26 @@ impl SettingsPane for GeneralPane {
             ),
         ];
         pane::render_rows(frame, areas.body, rows, &mut self.selected, theme);
-        let anchor = pane::row_anchor(areas.body);
-        if let Some(popup) = &self.language {
-            popup.render(frame, areas.full, anchor, theme);
+        let anchor = pane::row_anchor(areas.body, self.selected.index());
+        if let Some(popup) = &mut self.language {
+            popup.set_anchor(anchor);
+            popup.render(ctx, frame, areas.full);
         }
-        if let Some(popup) = &self.picker {
-            popup.render(frame, areas.full, anchor, theme);
+        if let Some(popup) = &mut self.picker {
+            popup.render(ctx, frame, areas.full);
         }
     }
 
     fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {
         if let Some(popup) = &mut self.language {
-            match popup.handle_key(key) {
-                PopupEvent::Ignored => {}
-                PopupEvent::Handled => return PaneEvent::Handled,
-                PopupEvent::Cancelled => {
+            match popup.on_key(ctx, key) {
+                ModalOutcome::Ignored => {}
+                ModalOutcome::Handled => return PaneEvent::Handled,
+                ModalOutcome::Cancelled => {
                     self.language = None;
                     return PaneEvent::Handled;
                 }
-                PopupEvent::Completed(code) => {
+                ModalOutcome::Completed(code) => {
                     self.language = None;
                     self.select_language(ctx, code);
                     return PaneEvent::Handled;
@@ -88,14 +88,14 @@ impl SettingsPane for GeneralPane {
         }
 
         if let Some(popup) = &mut self.picker {
-            match popup.handle_key(key) {
-                PopupEvent::Ignored => {}
-                PopupEvent::Handled => return PaneEvent::Handled,
-                PopupEvent::Cancelled => {
+            match popup.on_key(ctx, key) {
+                ModalOutcome::Ignored => {}
+                ModalOutcome::Handled => return PaneEvent::Handled,
+                ModalOutcome::Cancelled => {
                     self.picker = None;
                     return PaneEvent::Handled;
                 }
-                PopupEvent::Completed(path) => {
+                ModalOutcome::Completed(path) => {
                     self.picker = None;
                     self.set_storage_root(ctx, path);
                     return PaneEvent::Handled;
@@ -142,10 +142,10 @@ impl SettingsPane for GeneralPane {
 
     fn hints(&self) -> Vec<KeyHint> {
         if let Some(popup) = &self.language {
-            return popup.hints();
+            return popup.keybindings();
         }
         if let Some(popup) = &self.picker {
-            return popup.hints();
+            return popup.keybindings();
         }
         if self.edit.is_some() {
             return pane::edit_hints();

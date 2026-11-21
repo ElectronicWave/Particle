@@ -2,14 +2,14 @@ mod detail;
 mod view;
 
 use crate::t;
-use ratail::KeyHint;
+use ratail::{KeyHint, Page, PageEvent};
 use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
 };
 
-use crate::pages::content::{Content, ContentEvent};
+use crate::pages::route::Route;
 use crate::services::Services;
 use crate::widgets::list::ListSelection;
 
@@ -26,16 +26,16 @@ pub struct DownloadsContent {
     list: ListSelection,
 }
 
-impl Content for DownloadsContent {
-    fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+impl Page<Services> for DownloadsContent {
+    fn render(&mut self, ctx: &Services, _route: &Route, frame: &mut Frame, area: Rect) {
         view::render(self, ctx, frame, area);
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ContentEvent {
+    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
         match key.code {
             KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
                 self.list.handle_key(key.code);
-                ContentEvent::Handled
+                PageEvent::Handled
             }
             KeyCode::Enter => {
                 let sessions = ctx.install().sessions();
@@ -45,13 +45,13 @@ impl Content for DownloadsContent {
                     ctx.install().dismiss(session.id);
                     self.list.select(Some(0));
                 }
-                ContentEvent::Handled
+                PageEvent::Handled
             }
-            _ => ContentEvent::Ignored,
+            _ => PageEvent::Ignored,
         }
     }
 
-    fn keybindings(&self) -> Vec<KeyHint> {
+    fn keybindings(&self, _route: &Route) -> Vec<KeyHint> {
         download_hints()
     }
 }
