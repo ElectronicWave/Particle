@@ -1,0 +1,137 @@
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
+    sync::Arc,
+    time::SystemTime,
+};
+
+use anyhow::Error;
+use elemental::{
+    core::auth::{credential::CredentialKind, texture::SkinModel},
+    launcher::{
+        AccountStore, CapeStore, LaunchOptions, SkinStore,
+        offline_server::{OfflineProfile, OfflineServer},
+    },
+};
+use ratail::{Redraw, Snapshot, Task};
+
+use crate::app::launch::{self, LaunchSession};
+
+use super::{config::ConfigService, launcher::LauncherHandle, runtime::options_for};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchReport {
+    pub instance_name: String,
+    pub executable: PathBuf,
+    pub pid: Option<u32>,
+    pub log_path: PathBuf,
+    pub started_at: SystemTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchOutcome {
+    Started(LaunchReport),
+    NoAccount,
+    InstanceNotFound(String),
+}
+
+pub struct LaunchService {
+    accounts: Arc<AccountStore>,
+    launcher: LauncherHandle,
+    config: ConfigService,
+    skins: Arc<SkinStore>,
+    capes: Arc<CapeStore>,
+    launch: Task<LaunchOutcome, Error>,
+    redraw: Redraw,
+}
+
+impl LaunchService {
+    pub(super) fn new(
+        accounts: Arc<AccountStore>,
+        launcher: LauncherHandle,
+        config: ConfigService,
+        skins: Arc<SkinStore>,
+        capes: Arc<CapeStore>,
+        redraw: Redraw,
+    ) -> Self {
+        Self {
+            accounts,
+            launcher,
+            config,
+            skins,
+            capes,
+            launch: Task::with_redraw(&redraw),
+            redraw,
+        }
+    }
+
+    pub fn snapshot(&self) -> Arc<Snapshot<LaunchOutcome, Error>> {
+        self.launch.snapshot()
+    }
+
+    pub fn launch_instance(&self, instance_name: String) -> bool {
+        let store = self.accounts.clone();
+        let launcher = self.launcher.get();
+        let config = self.config.snapshot();
+        let skins = self.skins.clone();
+        let capes = self.capes.clone();
+        let redraw = self.redraw.clone();
+
+        self.launch.spawn_once(move || async move {
+            let runtime = options_for(&config, Some(&instance_name)).await?;
+            let Some(account) = store.selected().await? else {
+                return Ok(LaunchOutcome::NoAccount);
+            };
+            let mut credential = account.credential().await?;
+            let offline_server = if credential.kind == CredentialKind::Legacy {
+                let selected = skins.selected(account.account_id()).await?;
+                let selected_cape = capes.selected(account.account_id()).await?;
+                let mut profile = OfflineProfile::new(credential.username.clone())
+                    .with_uuid(credential.uuid.clone());
+                if let Some(selected) = selected {
+                    profile = profile
+                        .with_skin(selected.path)
+                        .with_skin_model(server_skin_model(selected.model));
+                }
+                if let Some(selected) = selected_cape {
+                    profile = profile.with_cape(selected.path);
+                }
+                let server = OfflineServer::builder()
+                    .server_name("Particle".to_owned())
+                    .profile(profile)
+                    .start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?;
+                credential = credential.with_auth_server(server.base_url.to_string());
+                Some(server)
+            } else {
+                None
+            };
+            let Some(instance) = launcher.inspect_instance(instance_name.clone()).await? else {
+                return Ok(LaunchOutcome::InstanceNotFound(instance_name));
+            };
+            let prepared = launcher.load_instance(instance).await?;
+            let command = launcher
+                .build_launch_command(&prepared, &credential, &runtime, &LaunchOptions::default())
+                .await?;
+            let executable = command.program();
+            let session = LaunchSession::create(&config.storage_root, &instance_name, &command)?;
+            let child = session.spawn(&command)?;
+            let report = LaunchReport {
+                instance_name: instance_name.clone(),
+                executable,
+                pid: child.id(),
+                log_path: session.log_path.clone(),
+                started_at: session.started_at,
+            };
+            launch::supervise(child, session, redraw, offline_server);
+
+            Ok(LaunchOutcome::Started(report))
+        })
+    }
+}
+
+fn server_skin_model(model: SkinModel) -> elemental::launcher::offline_server::SkinModel {
+    match model {
+        SkinModel::Classic => elemental::launcher::offline_server::SkinModel::Classic,
+        SkinModel::Slim => elemental::launcher::offline_server::SkinModel::Slim,
+    }
+}
