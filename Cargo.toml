@@ -11,6 +11,7 @@ elemental = { git = "https://github.com/ElectronicWave/Elemental", branch = "mai
     "authlib-injector-embed",
     "offline-server",
     "driver-all",
+    "microsoft-auth",
 ] }
 anyhow = "1.0.102"
 ratail = { git = "https://github.com/ElectronicWave/ratail" }
@@ -41,6 +42,3 @@ panic = "abort"             # reduces binary size when combined with panic_immed
 split-debuginfo = "packed"  # emits a separate *.dwp/*.dSYM so the binary can be stripped
 strip = "symbols"           # see split-debuginfo; drops symbols from the executable
 incremental = true         # lets LTO optimize across the whole program
-
-[patch.crates-io]
-nidhogg = { git = "https://github.com/ElectronicWave/nidhogg", branch = "master" }
