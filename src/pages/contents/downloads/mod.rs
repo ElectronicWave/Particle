@@ -2,16 +2,12 @@ mod detail;
 mod view;
 
 use crate::t;
-use ratail::{KeyHint, Page, PageEvent};
-use ratatui::{
-    Frame,
-    crossterm::event::{KeyCode, KeyEvent},
-    layout::Rect,
-};
+use ratail::{InputEvent, KeyHint, Page, PageEvent};
+use ratatui::{Frame, layout::Rect};
 
 use crate::pages::route::Route;
 use crate::services::Services;
-use crate::widgets::list::ListSelection;
+use crate::widgets::list::{ListAction, ListSelection};
 
 fn download_hints() -> Vec<KeyHint> {
     vec![
@@ -31,13 +27,10 @@ impl Page<Services> for DownloadsContent {
         view::render(self, ctx, frame, area);
     }
 
-    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
-        match key.code {
-            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
-                self.list.handle_key(key.code);
-                PageEvent::Handled
-            }
-            KeyCode::Enter => {
+    fn on_input(&mut self, ctx: &Services, _route: &Route, input: InputEvent) -> PageEvent<Route> {
+        match self.list.handle_input(&input) {
+            ListAction::Changed => PageEvent::Handled,
+            ListAction::Activate(_) => {
                 let sessions = ctx.install().sessions();
                 if let Some(session) = self.list.selected().and_then(|index| sessions.get(index))
                     && session.phase.can_dismiss()
@@ -47,7 +40,7 @@ impl Page<Services> for DownloadsContent {
                 }
                 PageEvent::Handled
             }
-            _ => PageEvent::Ignored,
+            ListAction::Ignored => PageEvent::Ignored,
         }
     }
 

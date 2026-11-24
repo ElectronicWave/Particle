@@ -1,9 +1,9 @@
 use crate::t;
 use elemental::launcher::{InspectReport, Instance};
-use ratail::{KeyHint, ModalHost, PageEvent, SnapshotStatus, WithModal};
+use ratail::{InputEvent, KeyHint, ModalHost, PageEvent, SnapshotStatus, WithModal};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyModifiers},
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
@@ -15,7 +15,10 @@ use crate::pages::content::{render_message, render_snapshot};
 use crate::pages::route::Route;
 use crate::services::{LaunchOutcome, Services};
 use crate::theme::Theme;
-use crate::widgets::{confirm::Confirmation, list::ListSelection};
+use crate::widgets::{
+    confirm::Confirmation,
+    list::{ListAction, ListSelection},
+};
 
 fn instance_hints() -> Vec<KeyHint> {
     vec![
@@ -54,24 +57,28 @@ impl WithModal<Services> for InstancesContent {
         render_launch_status(ctx, frame, status_area, theme);
     }
 
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         _route: &Route,
         modals: &mut ModalHost<Services, Self>,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<Route> {
-        match key.code {
-            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
-                self.list.handle_key(key.code);
-                PageEvent::Handled
-            }
-            KeyCode::Enter => {
+        match self.list.handle_input(&input) {
+            ListAction::Changed => return PageEvent::Handled,
+            ListAction::Activate(_) => {
                 if let Some(instance) = self.selected_instance(ctx) {
                     ctx.launch().launch_instance(instance);
                 }
-                PageEvent::Handled
+                return PageEvent::Handled;
             }
+            ListAction::Ignored => {}
+        }
+
+        let Some(key) = input.key() else {
+            return PageEvent::Ignored;
+        };
+        match key.code {
             KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ctx.instances().load();
                 PageEvent::Handled
@@ -132,6 +139,7 @@ impl InstancesContent {
         theme: Theme,
     ) {
         if instances.is_empty() {
+            self.list.clear_area();
             render_message(frame, area, t!("instances.empty").as_ref());
             return;
         }
@@ -161,6 +169,7 @@ impl InstancesContent {
             .collect::<Vec<ListItem>>();
         let list = List::new(items).highlight_style(theme.selection_style());
 
+        self.list.set_area(area, instances.len());
         frame.render_stateful_widget(list, area, self.list.state_mut());
     }
 

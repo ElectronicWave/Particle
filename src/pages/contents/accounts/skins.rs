@@ -2,10 +2,10 @@ use elemental::{
     core::auth::{accounts::AccountId, texture::SkinModel},
     launcher::SkinId,
 };
-use ratail::{KeyChord, KeyHint, KeyMap, ModalHost, NavAction, PageEvent, WithModal};
+use ratail::{InputEvent, KeyChord, KeyHint, KeyMap, ModalHost, NavAction, PageEvent, WithModal};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
     style::Style,
     text::{Line, Span},
@@ -16,7 +16,11 @@ use crate::pages::content::render_snapshot;
 use crate::services::{Services, SkinState};
 use crate::t;
 use crate::theme::Theme;
-use crate::widgets::{confirm::Confirmation, list::ListSelection, skin::SkinView};
+use crate::widgets::{
+    confirm::Confirmation,
+    list::{ListAction, ListSelection},
+    skin::SkinView,
+};
 
 use super::{
     AccountRoute, NamePrompt, account_uses_local_textures, bind_list_nav, bind_remove_and_back,
@@ -63,13 +67,22 @@ impl SkinsPage {
         }
     }
 
-    fn handle_key(
+    fn handle_input(
         &mut self,
         ctx: &Services,
         modals: &mut ModalHost<Services, Self, AccountRoute>,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<AccountRoute> {
-        let Some(action) = self.keys.action_for(&key) else {
+        match self.list.handle_input(&input) {
+            ListAction::Changed => return PageEvent::Handled,
+            ListAction::Activate(_) => {
+                self.choose(ctx);
+                return PageEvent::Handled;
+            }
+            ListAction::Ignored => {}
+        }
+
+        let Some(action) = self.keys.action_for(&input) else {
             return PageEvent::Ignored;
         };
 
@@ -183,6 +196,7 @@ impl SkinsPage {
     fn render_list(&mut self, state: &SkinState, frame: &mut Frame, area: Rect, theme: Theme) {
         self.list.set_len(state.entries.len());
         if state.entries.is_empty() {
+            self.list.clear_area();
             render_list_message(frame, area, t!("accounts.skins_empty").as_ref());
             return;
         }
@@ -208,6 +222,7 @@ impl SkinsPage {
             })
             .collect::<Vec<Line>>();
         let list = List::new(items).highlight_style(theme.selection_style());
+        self.list.set_area(area, state.entries.len());
         frame.render_stateful_widget(list, area, self.list.state_mut());
     }
 }
@@ -242,14 +257,14 @@ impl WithModal<Services, AccountRoute> for SkinsPage {
         self.sync_preview(ctx);
     }
 
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         _route: &AccountRoute,
         modals: &mut ModalHost<Services, Self, AccountRoute>,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<AccountRoute> {
-        let event = self.handle_key(ctx, modals, key);
+        let event = self.handle_input(ctx, modals, input);
         if event == PageEvent::Handled {
             self.sync_preview(ctx);
         }

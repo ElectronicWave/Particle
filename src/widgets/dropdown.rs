@@ -1,7 +1,7 @@
-use ratail::{KeyHint, Modal, ModalOutcome};
+use ratail::{HitMap, InputEvent, KeyHint, Modal, ModalOutcome, MouseKind};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyModifiers},
     layout::Rect,
     style::Style,
     widgets::{Block, BorderType, Borders, Clear, List, ListState},
@@ -18,6 +18,12 @@ const HIGHLIGHT_WIDTH: u16 = 2;
 const VERTICAL_PADDING: u16 = 2;
 const HIGHLIGHT_SYMBOL: &str = "▸ ";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DropdownRegion {
+    Popup,
+    List,
+}
+
 /// A dropdown whose options carry values, so callers handle domain results directly.
 #[derive(Debug)]
 pub struct Dropdown<T> {
@@ -25,6 +31,8 @@ pub struct Dropdown<T> {
     options: Vec<(String, T)>,
     selection: ListSelection,
     anchor: Option<Rect>,
+    hits: HitMap<DropdownRegion>,
+    offset: usize,
 }
 
 impl<T> Dropdown<T> {
@@ -34,6 +42,8 @@ impl<T> Dropdown<T> {
             options,
             selection: ListSelection::wrap(selected),
             anchor: None,
+            hits: HitMap::new(),
+            offset: 0,
         }
     }
 
@@ -57,32 +67,64 @@ impl<T> Dropdown<T> {
 impl<T> Modal<Services> for Dropdown<T> {
     type Value = T;
 
-    fn on_key(&mut self, _ctx: &Services, key: KeyEvent) -> ModalOutcome<T> {
-        if key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-        {
-            return ModalOutcome::Ignored;
-        }
+    fn on_input(&mut self, _ctx: &Services, input: InputEvent) -> ModalOutcome<T> {
         if self.options.is_empty() {
             return ModalOutcome::Cancelled;
         }
 
         self.selection.set_len(self.options.len());
-        match key.code {
-            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
-                self.selection.handle_key(key.code);
-                ModalOutcome::Handled
+        match input {
+            InputEvent::Key(key) => {
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                {
+                    return ModalOutcome::Ignored;
+                }
+                match key.code {
+                    KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
+                        self.selection.handle_key(key.code);
+                        ModalOutcome::Handled
+                    }
+                    KeyCode::Enter => {
+                        ModalOutcome::Completed(self.options.remove(self.selection.index()).1)
+                    }
+                    KeyCode::Esc => ModalOutcome::Cancelled,
+                    _ => ModalOutcome::Handled,
+                }
             }
-            KeyCode::Enter => {
-                ModalOutcome::Completed(self.options.remove(self.selection.index()).1)
+            InputEvent::Mouse(mouse) => {
+                let hit = self.hits.hit_mouse_copied(mouse);
+                match (hit, mouse.kind) {
+                    (None, MouseKind::Click | MouseKind::RightClick) => ModalOutcome::Cancelled,
+                    (Some(_), MouseKind::ScrollDown) => {
+                        self.selection.next();
+                        ModalOutcome::Handled
+                    }
+                    (Some(_), MouseKind::ScrollUp) => {
+                        self.selection.previous();
+                        ModalOutcome::Handled
+                    }
+                    (Some(hit), MouseKind::Click | MouseKind::DoubleClick)
+                        if hit.id == DropdownRegion::List =>
+                    {
+                        let index = self.offset + hit.row as usize;
+                        if index < self.options.len() {
+                            self.selection.select(Some(index));
+                            ModalOutcome::Completed(self.options.remove(index).1)
+                        } else {
+                            ModalOutcome::Ignored
+                        }
+                    }
+                    _ => ModalOutcome::Ignored,
+                }
             }
-            KeyCode::Esc => ModalOutcome::Cancelled,
-            _ => ModalOutcome::Handled,
+            InputEvent::Paste(_) => ModalOutcome::Ignored,
         }
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+        self.hits.clear();
         if self.options.is_empty() {
             return;
         }
@@ -99,9 +141,11 @@ impl<T> Modal<Services> for Dropdown<T> {
             .title(self.title.clone());
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
+        self.hits.register(popup, DropdownRegion::Popup);
         if inner.is_empty() {
             return;
         }
+        self.hits.register(inner, DropdownRegion::List);
 
         let list = List::new(self.options.iter().map(|(label, _)| label.as_str()))
             .style(Style::new().fg(theme.text))
@@ -111,6 +155,7 @@ impl<T> Modal<Services> for Dropdown<T> {
         let visible = inner.height as usize;
         let selected = self.selection.index().min(self.options.len() - 1);
         let offset = selected.saturating_add(1).saturating_sub(visible);
+        self.offset = offset;
         let mut list_state = ListState::default()
             .with_selected(Some(selected))
             .with_offset(offset);

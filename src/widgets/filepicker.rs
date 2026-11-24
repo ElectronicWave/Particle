@@ -4,10 +4,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use ratail::{KeyHint, Modal, ModalOutcome};
+use ratail::{HitMap, InputEvent, KeyHint, Modal, ModalOutcome, MouseKind};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyModifiers},
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
@@ -52,6 +52,12 @@ struct Entry {
     preferred: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PickerRegion {
+    Popup,
+    List,
+}
+
 /// A modal file or directory browser that owns its navigation state.
 #[derive(Debug)]
 pub struct FilePicker {
@@ -64,6 +70,8 @@ pub struct FilePicker {
     filter: Option<TextEdit>,
     preferred_extensions: Vec<String>,
     error: Option<String>,
+    hits: HitMap<PickerRegion>,
+    offset: usize,
 }
 
 impl FilePicker {
@@ -88,6 +96,8 @@ impl FilePicker {
                 .filter(|extension| !extension.is_empty())
                 .collect(),
             error: None,
+            hits: HitMap::new(),
+            offset: 0,
         };
         picker.load(directory);
         picker
@@ -172,19 +182,54 @@ impl FilePicker {
 impl Modal<Services> for FilePicker {
     type Value = PathBuf;
 
-    fn on_key(&mut self, _ctx: &Services, key: KeyEvent) -> ModalOutcome<PathBuf> {
-        if key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-        {
-            return ModalOutcome::Ignored;
+    fn on_input(&mut self, _ctx: &Services, input: InputEvent) -> ModalOutcome<PathBuf> {
+        if let InputEvent::Mouse(mouse) = input {
+            let hit = self.hits.hit_mouse_copied(mouse);
+            return match (hit, mouse.kind) {
+                (None, MouseKind::Click | MouseKind::RightClick) => ModalOutcome::Cancelled,
+                (Some(_), MouseKind::ScrollDown) => {
+                    self.selected.next();
+                    ModalOutcome::Handled
+                }
+                (Some(_), MouseKind::ScrollUp) => {
+                    self.selected.previous();
+                    ModalOutcome::Handled
+                }
+                (Some(hit), MouseKind::Click) if hit.id == PickerRegion::List => {
+                    let index = self.offset + hit.row as usize;
+                    if index < self.visible.len() {
+                        self.selected.select(Some(index));
+                        ModalOutcome::Handled
+                    } else {
+                        ModalOutcome::Ignored
+                    }
+                }
+                (Some(hit), MouseKind::DoubleClick) if hit.id == PickerRegion::List => {
+                    let index = self.offset + hit.row as usize;
+                    if index < self.visible.len() {
+                        self.selected.select(Some(index));
+                        self.activate()
+                    } else {
+                        ModalOutcome::Ignored
+                    }
+                }
+                _ => ModalOutcome::Ignored,
+            };
         }
 
         if let Some(filter) = self.filter.as_mut() {
-            if self.selected.handle_key(key.code) {
-                return ModalOutcome::Handled;
+            if let Some(key) = input.key() {
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                {
+                    return ModalOutcome::Ignored;
+                }
+                if self.selected.handle_key(key.code) {
+                    return ModalOutcome::Handled;
+                }
             }
-            return match filter.handle_key(key) {
+            return match filter.handle_input(&input) {
                 EditEvent::Changed => {
                     self.rebuild_visible();
                     ModalOutcome::Handled
@@ -196,6 +241,16 @@ impl Modal<Services> for FilePicker {
                 }
                 EditEvent::Unhandled => ModalOutcome::Handled,
             };
+        }
+
+        let Some(key) = input.key() else {
+            return ModalOutcome::Ignored;
+        };
+        if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return ModalOutcome::Ignored;
         }
 
         match key.code {
@@ -219,6 +274,7 @@ impl Modal<Services> for FilePicker {
     }
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, area: Rect) {
+        self.hits.clear();
         let theme = ctx.ui().theme();
         let popup = popup_area(area);
         frame.render_widget(Clear, popup);
@@ -230,6 +286,7 @@ impl Modal<Services> for FilePicker {
             .title(self.title.clone());
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
+        self.hits.register(popup, PickerRegion::Popup);
         if inner.is_empty() {
             return;
         }
@@ -241,6 +298,7 @@ impl Modal<Services> for FilePicker {
             Constraint::Length(1),
         ])
         .areas(inner);
+        self.hits.register(content_area, PickerRegion::List);
 
         let path = Line::from(Span::styled(
             self.directory.display().to_string(),
@@ -275,6 +333,7 @@ impl Modal<Services> for FilePicker {
             .index()
             .min(self.visible.len().saturating_sub(1));
         let offset = selected.saturating_add(1).saturating_sub(rows);
+        self.offset = offset;
         let mut list_state = ListState::default()
             .with_selected((!self.visible.is_empty()).then_some(selected))
             .with_offset(offset);

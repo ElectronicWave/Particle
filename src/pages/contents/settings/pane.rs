@@ -1,9 +1,8 @@
 use std::borrow::Cow;
 
-use ratail::KeyHint;
+use ratail::{InputEvent, KeyHint};
 use ratatui::{
     Frame,
-    crossterm::event::KeyEvent,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
@@ -46,7 +45,7 @@ pub(super) trait SettingsPane {
 
     fn render(&mut self, ctx: &Services, frame: &mut Frame, areas: PaneAreas, theme: Theme);
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent;
+    fn on_input(&mut self, ctx: &Services, input: InputEvent) -> PaneEvent;
 
     fn hints(&self) -> Vec<KeyHint>;
 
@@ -111,11 +110,13 @@ pub(super) fn render_rows(
     selected: &mut ListSelection,
     theme: Theme,
 ) {
+    let len = rows.len();
     let items = rows
         .into_iter()
         .map(ListItem::new)
         .collect::<Vec<ListItem>>();
     let list = List::new(items).highlight_style(theme.selection_style());
+    selected.set_area(area, len);
     frame.render_stateful_widget(list, area, selected.state_mut());
 }
 

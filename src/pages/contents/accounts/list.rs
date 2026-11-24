@@ -9,11 +9,12 @@ use elemental::core::auth::{
     texture::TextureType,
 };
 use ratail::{
-    KeyChord, KeyHint, KeyMap, ModalHost, NavAction, Page, PageEvent, SnapshotStatus, WithModal,
+    InputEvent, KeyChord, KeyHint, KeyMap, ModalHost, NavAction, Page, PageEvent, SnapshotStatus,
+    WithModal,
 };
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
@@ -26,7 +27,11 @@ use crate::services::{
 };
 use crate::t;
 use crate::theme::Theme;
-use crate::widgets::{confirm::Confirmation, dropdown::Dropdown};
+use crate::widgets::{
+    confirm::Confirmation,
+    dropdown::Dropdown,
+    list::{ListAction as WidgetListAction, ListSelection},
+};
 
 use super::{
     AccountRoute, AuthorizerKind, NamePrompt, bind_list_nav, bind_remove_and_back,
@@ -49,7 +54,7 @@ impl Default for AccountCapability {
 }
 
 pub(super) struct AccountsListPage {
-    list: crate::widgets::list::ListSelection,
+    list: ListSelection,
     capability: AccountCapability,
     error: Option<String>,
     keys: KeyMap<ListAction>,
@@ -71,7 +76,7 @@ enum ListAction {
 impl Default for AccountsListPage {
     fn default() -> Self {
         Self {
-            list: crate::widgets::list::ListSelection::wrap(0),
+            list: ListSelection::wrap(0),
             capability: AccountCapability::default(),
             error: None,
             keys: list_keys(AccountCapability::default()),
@@ -150,13 +155,24 @@ impl AccountsListPage {
         state.accounts.get(self.list.selected()?).cloned()
     }
 
-    fn handle_key(
+    fn handle_input(
         &mut self,
         ctx: &Services,
         modals: &mut ModalHost<Services, Self, AccountRoute>,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<AccountRoute> {
-        let Some(action) = self.keys.action_for(&key) else {
+        match self.list.handle_input(&input) {
+            WidgetListAction::Changed => return PageEvent::Handled,
+            WidgetListAction::Activate(_) => {
+                if let Some(account) = self.selected_summary(ctx) {
+                    ctx.accounts().select(account.id);
+                }
+                return PageEvent::Handled;
+            }
+            WidgetListAction::Ignored => {}
+        }
+
+        let Some(action) = self.keys.action_for(&input) else {
             return PageEvent::Ignored;
         };
 
@@ -299,6 +315,7 @@ impl AccountsListPage {
         let theme = ctx.ui().theme();
         self.list.set_len(state.accounts.len());
         if state.accounts.is_empty() {
+            self.list.clear_area();
             render_message(frame, area, t!("accounts.empty").as_ref());
             return;
         }
@@ -323,6 +340,7 @@ impl AccountsListPage {
             .map(|account| account_list_item(account, state.selected == Some(account.id), theme))
             .collect::<Vec<ListItem>>();
         let list = List::new(items).highlight_style(theme.selection_style());
+        self.list.set_area(accounts_area, state.accounts.len());
         frame.render_stateful_widget(list, accounts_area, self.list.state_mut());
 
         if preview_area.width > 0
@@ -524,14 +542,14 @@ impl WithModal<Services, AccountRoute> for AccountsListPage {
         self.sync(ctx);
     }
 
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         _route: &AccountRoute,
         modals: &mut ratail::ModalHost<Services, Self, AccountRoute>,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> ratail::PageEvent<AccountRoute> {
-        let event = self.handle_key(ctx, modals, key);
+        let event = self.handle_input(ctx, modals, input);
         if event == PageEvent::Handled {
             self.sync(ctx);
         }
@@ -577,13 +595,13 @@ impl WithModal<Services, AccountRoute> for AccountsListPage {
 pub(super) struct MicrosoftAuthPage;
 
 impl Page<Services, AccountRoute> for MicrosoftAuthPage {
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         _route: &AccountRoute,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<AccountRoute> {
-        if key.code == KeyCode::Esc {
+        if input == InputEvent::Key(KeyChord::plain(KeyCode::Esc)) {
             ctx.accounts().cancel_authorization();
             PageEvent::Navigate(NavAction::Pop)
         } else {

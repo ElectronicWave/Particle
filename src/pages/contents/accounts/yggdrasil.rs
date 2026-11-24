@@ -1,9 +1,9 @@
 use elemental::core::auth::accounts::AccountId;
 use percent_encoding::percent_decode_str;
-use ratail::{KeyHint, NavAction, Page, PageEvent};
+use ratail::{HitMap, InputEvent, KeyChord, KeyHint, MouseKind, NavAction, Page, PageEvent};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyModifiers},
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
@@ -62,6 +62,7 @@ pub(super) struct YggdrasilPage {
     focused: YggdrasilField,
     error: Option<String>,
     waiting: bool,
+    field_hits: HitMap<YggdrasilField>,
 }
 
 impl YggdrasilPage {
@@ -87,6 +88,7 @@ impl YggdrasilPage {
             focused,
             error: None,
             waiting: false,
+            field_hits: HitMap::new(),
         }
     }
 
@@ -98,7 +100,21 @@ impl YggdrasilPage {
         )
     }
 
-    fn render_form(&self, frame: &mut Frame, area: Rect, theme: Theme) {
+    fn render_form(&mut self, frame: &mut Frame, area: Rect, theme: Theme) {
+        self.field_hits.clear();
+        let fields = [
+            YggdrasilField::BaseUrl,
+            YggdrasilField::Username,
+            YggdrasilField::Password,
+        ];
+        for (offset, field) in fields.into_iter().enumerate() {
+            let row = area.y + 2 + offset as u16;
+            if row < area.bottom() {
+                self.field_hits
+                    .register(Rect::new(area.x, row, area.width, 1), field);
+            }
+        }
+
         let dim = Style::new().fg(theme.text_dim);
         let mut lines = vec![
             Line::styled(
@@ -155,29 +171,44 @@ impl YggdrasilPage {
         }
     }
 
-    fn handle_form_key(&mut self, ctx: &Services, key: KeyEvent) -> PageEvent<AccountRoute> {
-        match key.code {
-            KeyCode::Tab | KeyCode::Down => {
-                self.focused = self.focused.next();
+    fn handle_form_input(&mut self, ctx: &Services, input: InputEvent) -> PageEvent<AccountRoute> {
+        if let InputEvent::Mouse(mouse) = input {
+            if matches!(mouse.kind, MouseKind::Click | MouseKind::DoubleClick)
+                && let Some(hit) = self.field_hits.hit_mouse_copied(mouse)
+            {
+                self.focused = hit.id;
                 self.error = None;
-                PageEvent::Handled
+                return PageEvent::Handled;
             }
-            KeyCode::BackTab | KeyCode::Up => {
-                self.focused = self.focused.previous();
-                self.error = None;
-                PageEvent::Handled
-            }
-            KeyCode::Enter => self.submit(ctx),
-            KeyCode::Esc => PageEvent::Navigate(NavAction::Pop),
-            _ => match self.active_input_mut().handle_key(key) {
-                EditEvent::Changed => {
+            return PageEvent::Ignored;
+        }
+
+        if let InputEvent::Key(key) = &input {
+            match key.code {
+                KeyCode::Tab | KeyCode::Down => {
+                    self.focused = self.focused.next();
                     self.error = None;
-                    PageEvent::Handled
+                    return PageEvent::Handled;
                 }
-                EditEvent::Unhandled => PageEvent::Ignored,
-                EditEvent::Submit => self.submit(ctx),
-                EditEvent::Cancel => PageEvent::Navigate(NavAction::Pop),
-            },
+                KeyCode::BackTab | KeyCode::Up => {
+                    self.focused = self.focused.previous();
+                    self.error = None;
+                    return PageEvent::Handled;
+                }
+                KeyCode::Enter => return self.submit(ctx),
+                KeyCode::Esc => return PageEvent::Navigate(NavAction::Pop),
+                _ => {}
+            }
+        }
+
+        match self.active_input_mut().handle_input(&input) {
+            EditEvent::Changed => {
+                self.error = None;
+                PageEvent::Handled
+            }
+            EditEvent::Unhandled => PageEvent::Ignored,
+            EditEvent::Submit => self.submit(ctx),
+            EditEvent::Cancel => PageEvent::Navigate(NavAction::Pop),
         }
     }
 
@@ -216,27 +247,28 @@ impl YggdrasilPage {
 }
 
 impl Page<Services, AccountRoute> for YggdrasilPage {
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         _route: &AccountRoute,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<AccountRoute> {
         if self.waiting {
-            if key.code == KeyCode::Esc {
+            if input == InputEvent::Key(KeyChord::plain(KeyCode::Esc)) {
                 ctx.accounts().cancel_authorization();
                 self.waiting = false;
                 return PageEvent::Handled;
             }
             return PageEvent::Ignored;
         }
-        if key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        if let Some(key) = input.key()
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             return PageEvent::Ignored;
         }
-        self.handle_form_key(ctx, key)
+        self.handle_form_input(ctx, input)
     }
 
     fn keybindings(&self, _route: &AccountRoute) -> Vec<KeyHint> {

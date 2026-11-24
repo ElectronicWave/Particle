@@ -1,8 +1,7 @@
 use crate::t;
-use ratail::{KeyHint, Page, PageEvent};
+use ratail::{InputEvent, KeyChord, KeyHint, Page, PageEvent};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
@@ -65,9 +64,9 @@ impl Page<Services> for HomeContent {
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
     }
 
-    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
-        match key.code {
-            KeyCode::Char('r') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+    fn on_input(&mut self, ctx: &Services, _route: &Route, input: InputEvent) -> PageEvent<Route> {
+        match input {
+            InputEvent::Key(key) if key == KeyChord::char('r') => {
                 ctx.accounts().load();
                 ctx.instances().load();
                 PageEvent::Handled

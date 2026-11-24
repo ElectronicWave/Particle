@@ -1,4 +1,5 @@
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratail::InputEvent;
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditEvent {
@@ -27,26 +28,39 @@ impl TextEdit {
         format!("{}█", self.input)
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> EditEvent {
-        if key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-        {
-            return EditEvent::Unhandled;
-        }
+    pub fn handle_input(&mut self, input: &InputEvent) -> EditEvent {
+        match input {
+            InputEvent::Paste(text) => {
+                let sanitized = text.replace(['\r', '\n'], "");
+                if sanitized.is_empty() {
+                    return EditEvent::Unhandled;
+                }
+                self.input.push_str(&sanitized);
+                EditEvent::Changed
+            }
+            InputEvent::Key(key) => {
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                {
+                    return EditEvent::Unhandled;
+                }
 
-        match key.code {
-            KeyCode::Esc => EditEvent::Cancel,
-            KeyCode::Backspace => {
-                self.input.pop();
-                EditEvent::Changed
+                match key.code {
+                    KeyCode::Esc => EditEvent::Cancel,
+                    KeyCode::Backspace => {
+                        self.input.pop();
+                        EditEvent::Changed
+                    }
+                    KeyCode::Enter => EditEvent::Submit,
+                    KeyCode::Char(character) => {
+                        self.input.push(character);
+                        EditEvent::Changed
+                    }
+                    _ => EditEvent::Unhandled,
+                }
             }
-            KeyCode::Enter => EditEvent::Submit,
-            KeyCode::Char(character) => {
-                self.input.push(character);
-                EditEvent::Changed
-            }
-            _ => EditEvent::Unhandled,
+            InputEvent::Mouse(_) => EditEvent::Unhandled,
         }
     }
 }

@@ -3,10 +3,10 @@ use elemental::{
     driver::{catalog::LoaderRelease, loader_version::LoaderVersionId},
     launcher::error::Error as LauncherError,
 };
-use ratail::{KeyHint, NavAction, Page, PageEvent, SnapshotStatus};
+use ratail::{InputEvent, KeyChord, KeyHint, NavAction, Page, PageEvent, SnapshotStatus};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
     widgets::{List, ListItem},
 };
@@ -16,7 +16,7 @@ use crate::pages::content::{render_loading, render_message};
 use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
-use crate::widgets::list::ListSelection;
+use crate::widgets::list::{ListAction, ListSelection};
 
 #[derive(Default)]
 pub(super) struct LoaderVersionsPage {
@@ -42,22 +42,21 @@ impl Page<Services, CatalogRoute> for LoaderVersionsPage {
         }
     }
 
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         route: &CatalogRoute,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<CatalogRoute> {
         let CatalogRoute::LoaderVersions { driver, game, .. } = route else {
             return PageEvent::Ignored;
         };
-        match key.code {
-            KeyCode::Esc => PageEvent::Navigate(NavAction::Pop),
-            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
-                self.loaders.handle_key(key.code);
-                PageEvent::Handled
-            }
-            KeyCode::Enter => match self.selected_loader(ctx, *driver, game) {
+        if input == InputEvent::Key(KeyChord::plain(KeyCode::Esc)) {
+            return PageEvent::Navigate(NavAction::Pop);
+        }
+        match self.loaders.handle_input(&input) {
+            ListAction::Changed => PageEvent::Handled,
+            ListAction::Activate(_) => match self.selected_loader(ctx, *driver, game) {
                 Some(loader) => {
                     self.selected = Some(loader.clone());
                     let selection = LoaderSelection {
@@ -71,7 +70,7 @@ impl Page<Services, CatalogRoute> for LoaderVersionsPage {
                 }
                 None => PageEvent::Handled,
             },
-            _ => PageEvent::Ignored,
+            ListAction::Ignored => PageEvent::Ignored,
         }
     }
 
@@ -119,6 +118,7 @@ impl Page<Services, CatalogRoute> for LoaderVersionsPage {
 impl LoaderVersionsPage {
     fn render_list(&mut self, data: &[LoaderRelease], frame: &mut Frame, area: Rect, theme: Theme) {
         if data.is_empty() {
+            self.loaders.clear_area();
             render_message(frame, area, &t!("catalog.no_loader_versions"));
             return;
         }
@@ -133,6 +133,7 @@ impl LoaderVersionsPage {
             .collect::<Vec<ListItem>>();
         let list = List::new(items).highlight_style(theme.selection_style());
 
+        self.loaders.set_area(area, data.len());
         frame.render_stateful_widget(list, area, self.loaders.state_mut());
     }
 

@@ -1,6 +1,7 @@
+use ratail::{HitMap, KeyChord};
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyCode,
     layout::Rect,
     style::{Modifier, Style},
     text::Span,
@@ -27,7 +28,7 @@ pub enum TabStep {
     Previous,
 }
 
-pub fn tab_step(key: KeyEvent) -> Option<TabStep> {
+pub fn tab_step(key: KeyChord) -> Option<TabStep> {
     match key.code {
         KeyCode::Tab => Some(TabStep::Next),
         KeyCode::BackTab => Some(TabStep::Previous),
@@ -66,6 +67,30 @@ impl<'a> TabBar<'a> {
     pub fn secondary(mut self) -> Self {
         self.level = TabLevel::Secondary;
         self
+    }
+
+    pub fn register_hits<T>(&self, area: Rect, hits: &mut HitMap<T>, mut make_id: impl FnMut(usize) -> T) {
+        if self.labels.is_empty() || area.is_empty() {
+            return;
+        }
+
+        let selected = self.selected.min(self.labels.len() - 1);
+        let (start, end) = visible_range(self.labels, selected, area.width as usize);
+        let mut x = area.x;
+        let right = area.right();
+
+        for (offset, label) in self.labels[start..end].iter().enumerate() {
+            if offset > 0 {
+                x = x.saturating_add(DIVIDER_WIDTH as u16);
+            }
+            let title_width = UnicodeWidthStr::width(*label) + if offset == 0 { 1 } else { 2 };
+            let width = (title_width as u16).min(right.saturating_sub(x));
+            if width == 0 {
+                break;
+            }
+            hits.register(Rect::new(x, area.y, width, 1), make_id(start + offset));
+            x = x.saturating_add(width);
+        }
     }
 
     fn highlight_style(&self) -> Style {

@@ -4,10 +4,10 @@ use elemental::{
     core::auth::{accounts::AccountId, authorizers::offline::OFFLINE_AUTHORIZER_ID},
     launcher::CapeId,
 };
-use ratail::{KeyChord, KeyHint, KeyMap, ModalHost, NavAction, PageEvent, WithModal};
+use ratail::{InputEvent, KeyChord, KeyHint, KeyMap, ModalHost, NavAction, PageEvent, WithModal};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
     style::Style,
     text::Line,
@@ -18,7 +18,10 @@ use crate::pages::content::render_snapshot;
 use crate::services::{CapeAccountKind, CapeState, OnlineCape, Services};
 use crate::t;
 use crate::theme::Theme;
-use crate::widgets::{confirm::Confirmation, list::ListSelection};
+use crate::widgets::{
+    confirm::Confirmation,
+    list::{ListAction, ListSelection},
+};
 
 use super::{
     AccountRoute, NamePrompt, bind_list_nav, bind_remove_and_back, for_account,
@@ -54,13 +57,22 @@ impl CapesPage {
         }
     }
 
-    fn handle_key(
+    fn handle_input(
         &mut self,
         ctx: &Services,
         modals: &mut ModalHost<Services, Self, AccountRoute>,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<AccountRoute> {
-        let Some(action) = self.keys.action_for(&key) else {
+        match self.list.handle_input(&input) {
+            ListAction::Changed => return PageEvent::Handled,
+            ListAction::Activate(_) => {
+                self.choose(ctx);
+                return PageEvent::Handled;
+            }
+            ListAction::Ignored => {}
+        }
+
+        let Some(action) = self.keys.action_for(&input) else {
             return PageEvent::Ignored;
         };
 
@@ -174,6 +186,7 @@ impl CapesPage {
             let capes = state.selectable_online().collect::<Vec<_>>();
             self.list.set_len(capes.len());
             if capes.is_empty() {
+                self.list.clear_area();
                 render_list_message(frame, area, t!("accounts.capes_empty_online").as_ref());
                 return;
             }
@@ -185,12 +198,14 @@ impl CapesPage {
                 })
                 .collect::<Vec<Line>>();
             let list = List::new(items).highlight_style(theme.selection_style());
+            self.list.set_area(area, capes.len());
             frame.render_stateful_widget(list, area, self.list.state_mut());
             return;
         }
 
         self.list.set_len(state.entries.len());
         if state.entries.is_empty() {
+            self.list.clear_area();
             render_list_message(frame, area, t!("accounts.capes_empty").as_ref());
             return;
         }
@@ -207,6 +222,7 @@ impl CapesPage {
             })
             .collect::<Vec<Line>>();
         let list = List::new(items).highlight_style(theme.selection_style());
+        self.list.set_area(area, state.entries.len());
         frame.render_stateful_widget(list, area, self.list.state_mut());
     }
 
@@ -265,14 +281,14 @@ impl WithModal<Services, AccountRoute> for CapesPage {
         self.sync_preview(ctx);
     }
 
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         _route: &AccountRoute,
         modals: &mut ModalHost<Services, Self, AccountRoute>,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<AccountRoute> {
-        let event = self.handle_key(ctx, modals, key);
+        let event = self.handle_input(ctx, modals, input);
         if event == PageEvent::Handled {
             self.sync_preview(ctx);
         }

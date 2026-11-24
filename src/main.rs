@@ -27,6 +27,7 @@ async fn main() -> Result<()> {
         |_| AppFlow::Exit,
     );
     app.set_hint_renderer(hints::render);
+    app.enable_mouse();
 
     let mut terminal = ratatui::init();
     let result = app.run(&mut terminal).await;

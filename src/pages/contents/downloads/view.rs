@@ -35,6 +35,7 @@ pub(super) fn render(
     frame.render_widget(Paragraph::new(Line::from(title)), title_area);
 
     if sessions.is_empty() {
+        content.list.clear_area();
         render_message(frame, body_area, t!("downloads.empty").as_ref());
         return;
     }
@@ -58,6 +59,7 @@ fn render_sessions(
             Constraint::Fill(1),
         ])
         .areas(area);
+        content.list.set_area(list_area, sessions.len());
         render_session_list(sessions, frame, list_area, theme, content.list.state_mut());
         detail::render(&sessions[selected], frame, detail_area, theme);
     } else {
@@ -68,6 +70,7 @@ fn render_sessions(
             Constraint::Fill(1),
         ])
         .areas(area);
+        content.list.set_area(list_area, sessions.len());
         render_session_list(sessions, frame, list_area, theme, content.list.state_mut());
         detail::render(&sessions[selected], frame, detail_area, theme);
     }

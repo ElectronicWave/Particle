@@ -1,5 +1,5 @@
-use ratail::{KeyHint, Modal, ModalOutcome};
-use ratatui::{Frame, crossterm::event::KeyEvent, layout::Rect};
+use ratail::{InputEvent, KeyHint, Modal, ModalOutcome};
+use ratatui::{Frame, layout::Rect};
 
 use crate::{services::Services, t, widgets::dropdown::Dropdown};
 
@@ -29,8 +29,8 @@ impl<T> Confirmation<T> {
 impl<T> Modal<Services> for Confirmation<T> {
     type Value = T;
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> ModalOutcome<T> {
-        match self.prompt.on_key(ctx, key) {
+    fn on_input(&mut self, ctx: &Services, input: InputEvent) -> ModalOutcome<T> {
+        match self.prompt.on_input(ctx, input) {
             ModalOutcome::Completed(true) => {
                 ModalOutcome::Completed(self.value.take().expect("confirmation completed twice"))
             }

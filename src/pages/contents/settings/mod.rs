@@ -3,10 +3,9 @@ mod general;
 mod pane;
 mod runtime;
 
-use ratail::{KeyHint, Page, PageEvent};
+use ratail::{HitMap, InputEvent, KeyHint, MouseKind, Page, PageEvent};
 use ratatui::{
     Frame,
-    crossterm::event::KeyEvent,
     layout::{Constraint, Layout, Rect},
     style::Style,
     text::Line,
@@ -25,6 +24,7 @@ use pane::{PaneAreas, PaneEvent, SettingsPane};
 pub struct SettingsContent {
     panes: Vec<Box<dyn SettingsPane>>,
     active: usize,
+    tab_hits: HitMap<usize>,
 }
 
 impl Default for SettingsContent {
@@ -36,6 +36,7 @@ impl Default for SettingsContent {
                 Box::new(downloads::DownloadsPane::default()),
             ],
             active: 0,
+            tab_hits: HitMap::new(),
         }
     }
 }
@@ -46,6 +47,7 @@ impl Page<Services> for SettingsContent {
     }
 
     fn render(&mut self, ctx: &Services, _route: &Route, frame: &mut Frame, area: Rect) {
+        self.tab_hits.clear();
         let theme = ctx.ui().theme();
         let [tabs_area, body_area, status_area] = Layout::vertical([
             Constraint::Length(1),
@@ -60,7 +62,9 @@ impl Page<Services> for SettingsContent {
             .map(|pane| pane.title().into_owned())
             .collect::<Vec<String>>();
         let label_refs = labels.iter().map(String::as_str).collect::<Vec<&str>>();
-        frame.render_widget(TabBar::new(theme, &label_refs, self.active), tabs_area);
+        let tabs = TabBar::new(theme, &label_refs, self.active);
+        tabs.register_hits(tabs_area, &mut self.tab_hits, |index| index);
+        frame.render_widget(tabs, tabs_area);
 
         let pane = &mut self.panes[self.active];
         let status = pane
@@ -79,12 +83,29 @@ impl Page<Services> for SettingsContent {
         );
     }
 
-    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
-        if self.panes[self.active].on_key(ctx, key) == PaneEvent::Handled {
+    fn on_input(&mut self, ctx: &Services, _route: &Route, input: InputEvent) -> PageEvent<Route> {
+        let is_modal = self.panes[self.active].is_modal();
+        if self.panes[self.active].on_input(ctx, input.clone()) == PaneEvent::Handled {
             return PageEvent::Handled;
         }
+        if is_modal {
+            return PageEvent::Ignored;
+        }
 
-        match tab_step(key) {
+        if let InputEvent::Mouse(mouse) = input {
+            if matches!(mouse.kind, MouseKind::Click | MouseKind::DoubleClick)
+                && let Some(hit) = self.tab_hits.hit_mouse_copied(mouse)
+            {
+                if hit.id != self.active {
+                    self.active = hit.id;
+                    self.panes[self.active].init(ctx);
+                }
+                return PageEvent::Handled;
+            }
+            return PageEvent::Ignored;
+        }
+
+        match input.key().and_then(tab_step) {
             Some(step) => {
                 self.active = cycle_index(self.panes.len(), self.active, step);
                 self.panes[self.active].init(ctx);

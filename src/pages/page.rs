@@ -1,9 +1,10 @@
 use crate::t;
-use ratail::{KeyHint, NavAction, Page, PageEvent};
+use ratail::{HitMap, InputEvent, KeyChord, KeyHint, MouseKind, NavAction, Page, PageEvent};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyEventKind},
+    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
+    widgets::{Block, Borders, Padding},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -18,6 +19,13 @@ enum Focus {
     Content,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum ShellTarget {
+    Sidebar,
+    Route(Route),
+    Content,
+}
+
 fn sidebar_hints() -> Vec<KeyHint> {
     vec![
         KeyHint::new("↑/↓", t!("common.browse")),
@@ -28,6 +36,7 @@ fn sidebar_hints() -> Vec<KeyHint> {
 pub struct ShellPage<C> {
     focus: Focus,
     content: C,
+    hits: HitMap<ShellTarget>,
 }
 
 impl<C> ShellPage<C> {
@@ -35,10 +44,11 @@ impl<C> ShellPage<C> {
         Self {
             focus: Focus::Sidebar,
             content,
+            hits: HitMap::new(),
         }
     }
 
-    fn on_sidebar_key(&mut self, route: &Route, key: KeyEvent) -> PageEvent<Route> {
+    fn on_sidebar_key(&mut self, route: &Route, key: KeyChord) -> PageEvent<Route> {
         match key.code {
             KeyCode::Down => self.navigate_to(route, route.next()),
             KeyCode::Up => self.navigate_to(route, route.previous()),
@@ -83,20 +93,66 @@ impl<C: Page<Services> + 'static> Page<Services> for ShellPage<C> {
         }
     }
 
-    fn on_key(&mut self, ctx: &Services, route: &Route, key: KeyEvent) -> PageEvent<Route> {
-        if key.kind == KeyEventKind::Release {
-            return PageEvent::Ignored;
+    fn on_input(&mut self, ctx: &Services, route: &Route, input: InputEvent) -> PageEvent<Route> {
+        if let InputEvent::Mouse(mouse) = input {
+            let Some(hit) = self.hits.hit_mouse_copied(mouse) else {
+                return PageEvent::Ignored;
+            };
+            return match hit.id {
+                ShellTarget::Route(target) => match mouse.kind {
+                    MouseKind::Click | MouseKind::DoubleClick => {
+                        self.focus = Focus::Sidebar;
+                        self.navigate_to(route, target)
+                    }
+                    MouseKind::ScrollDown => self.navigate_to(route, route.next()),
+                    MouseKind::ScrollUp => self.navigate_to(route, route.previous()),
+                    _ => PageEvent::Ignored,
+                },
+                ShellTarget::Sidebar => match mouse.kind {
+                    MouseKind::Click => {
+                        self.focus = Focus::Sidebar;
+                        PageEvent::Handled
+                    }
+                    MouseKind::ScrollDown => self.navigate_to(route, route.next()),
+                    MouseKind::ScrollUp => self.navigate_to(route, route.previous()),
+                    _ => PageEvent::Ignored,
+                },
+                ShellTarget::Content => {
+                    let focus_changed = self.focus != Focus::Content
+                        && matches!(
+                            mouse.kind,
+                            MouseKind::Click
+                                | MouseKind::DoubleClick
+                                | MouseKind::RightClick
+                                | MouseKind::ScrollUp
+                                | MouseKind::ScrollDown
+                        );
+                    if focus_changed {
+                        self.focus = Focus::Content;
+                    }
+                    match self.content.on_input(ctx, route, InputEvent::Mouse(mouse)) {
+                        PageEvent::Ignored if focus_changed => PageEvent::Handled,
+                        event => event,
+                    }
+                }
+            };
         }
 
         match self.focus {
-            Focus::Sidebar => self.on_sidebar_key(route, key),
-            Focus::Content => match self.content.on_key(ctx, route, key) {
-                PageEvent::Ignored if key.code == KeyCode::Esc => {
-                    self.focus = Focus::Sidebar;
-                    PageEvent::Handled
-                }
-                event => event,
+            Focus::Sidebar => match input {
+                InputEvent::Key(key) => self.on_sidebar_key(route, key),
+                InputEvent::Paste(_) | InputEvent::Mouse(_) => PageEvent::Ignored,
             },
+            Focus::Content => {
+                let is_esc = input == InputEvent::Key(KeyChord::plain(KeyCode::Esc));
+                match self.content.on_input(ctx, route, input) {
+                    PageEvent::Ignored if is_esc => {
+                        self.focus = Focus::Sidebar;
+                        PageEvent::Handled
+                    }
+                    event => event,
+                }
+            }
         }
     }
 
@@ -105,6 +161,7 @@ impl<C: Page<Services> + 'static> Page<Services> for ShellPage<C> {
     }
 
     fn render(&mut self, ctx: &Services, route: &Route, frame: &mut Frame, area: Rect) {
+        self.hits.clear();
         let theme = ctx.ui().theme();
         let [sidebar_area, _gutter, content_area] = Layout::horizontal([
             Constraint::Length(sidebar_width()),
@@ -127,6 +184,25 @@ impl<C: Page<Services> + 'static> Page<Services> for ShellPage<C> {
             ),
             sidebar_area,
         );
+        self.hits.register(sidebar_area, ShellTarget::Sidebar);
+        let sidebar_inner = Block::default()
+            .borders(Borders::ALL)
+            .padding(Padding::horizontal(1))
+            .inner(sidebar_area);
+        for (index, item_route) in Route::all().iter().enumerate() {
+            if (index as u16) >= sidebar_inner.height {
+                break;
+            }
+            let row = Rect::new(
+                sidebar_inner.x,
+                sidebar_inner.y + index as u16,
+                sidebar_inner.width,
+                1,
+            );
+            self.hits.register(row, ShellTarget::Route(*item_route));
+        }
+
+        self.hits.register(content_area, ShellTarget::Content);
         let inner = panel::render(frame, content_area, theme, self.focus == Focus::Content);
         self.content.render(ctx, route, frame, inner);
     }

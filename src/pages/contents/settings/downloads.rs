@@ -1,16 +1,12 @@
 use std::borrow::Cow;
 
-use ratail::KeyHint;
-use ratatui::{
-    Frame,
-    crossterm::event::{KeyCode, KeyEvent},
-    text::Line,
-};
+use ratail::{InputEvent, KeyHint, MouseKind};
+use ratatui::{Frame, crossterm::event::KeyCode, text::Line};
 
 use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
-use crate::widgets::list::ListSelection;
+use crate::widgets::list::{ListAction, ListSelection};
 
 use super::pane::{self, PaneAreas, PaneEvent, RowHint, SettingsPane};
 
@@ -40,9 +36,35 @@ impl SettingsPane for DownloadsPane {
         pane::render_rows(frame, areas.body, rows, &mut self.selection, theme);
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {
+    fn on_input(&mut self, ctx: &Services, input: InputEvent) -> PaneEvent {
+        if let InputEvent::Mouse(mouse) = input {
+            match mouse.kind {
+                MouseKind::ScrollUp => {
+                    self.adjust(ctx, true);
+                    return PaneEvent::Handled;
+                }
+                MouseKind::ScrollDown => {
+                    self.adjust(ctx, false);
+                    return PaneEvent::Handled;
+                }
+                _ => {}
+            }
+        }
+
+        match self.selection.handle_input(&input) {
+            ListAction::Activate(_) => {
+                self.adjust(ctx, true);
+                return PaneEvent::Handled;
+            }
+            ListAction::Changed => return PaneEvent::Handled,
+            ListAction::Ignored => {}
+        }
+
+        let Some(key) = input.key() else {
+            return PaneEvent::Ignored;
+        };
         match key.code {
-            KeyCode::Enter | KeyCode::Right => {
+            KeyCode::Right => {
                 self.adjust(ctx, true);
                 PaneEvent::Handled
             }

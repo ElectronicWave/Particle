@@ -1,4 +1,16 @@
-use ratatui::{crossterm::event::KeyCode, widgets::ListState};
+use ratail::{InputEvent, MouseKind};
+use ratatui::{
+    crossterm::event::{KeyCode, KeyModifiers},
+    layout::{Position, Rect},
+    widgets::ListState,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListAction {
+    Ignored,
+    Changed,
+    Activate(usize),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Boundary {
@@ -14,6 +26,8 @@ enum Boundary {
 pub struct ListSelection {
     state: ListState,
     boundary: Boundary,
+    area: Rect,
+    rendered_len: usize,
 }
 
 impl Default for ListSelection {
@@ -27,6 +41,8 @@ impl ListSelection {
         Self {
             state: ListState::default().with_selected(Some(0)),
             boundary: Boundary::Clamp,
+            area: Rect::ZERO,
+            rendered_len: 0,
         }
     }
 
@@ -34,7 +50,19 @@ impl ListSelection {
         Self {
             state: ListState::default().with_selected(Some(selected)),
             boundary: Boundary::Wrap { len: 0 },
+            area: Rect::ZERO,
+            rendered_len: 0,
         }
+    }
+
+    pub fn set_area(&mut self, area: Rect, len: usize) {
+        self.area = area;
+        self.rendered_len = len;
+    }
+
+    pub fn clear_area(&mut self) {
+        self.area = Rect::ZERO;
+        self.rendered_len = 0;
     }
 
     pub fn selected(&self) -> Option<usize> {
@@ -51,6 +79,7 @@ impl ListSelection {
 
     /// Updates the wrapped row count and keeps the selection inside it.
     pub fn set_len(&mut self, len: usize) {
+        self.rendered_len = len;
         if let Boundary::Wrap { len: wrap_len } = &mut self.boundary {
             *wrap_len = len;
         }
@@ -100,6 +129,65 @@ impl ListSelection {
             _ => return false,
         }
         true
+    }
+
+    /// Handles keyboard navigation/Enter and mouse scroll/click/double-click
+    /// inside the last rendered list area.
+    pub fn handle_input(&mut self, input: &InputEvent) -> ListAction {
+        match input {
+            InputEvent::Key(key) => {
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                {
+                    return ListAction::Ignored;
+                }
+                if self.handle_key(key.code) {
+                    return ListAction::Changed;
+                }
+                if key.code == KeyCode::Enter
+                    && let Some(index) = self.selected()
+                {
+                    return ListAction::Activate(index);
+                }
+                ListAction::Ignored
+            }
+            InputEvent::Mouse(mouse) => {
+                if !self.area.contains(Position::new(mouse.column, mouse.row)) {
+                    return ListAction::Ignored;
+                }
+                match mouse.kind {
+                    MouseKind::ScrollDown => {
+                        self.next();
+                        ListAction::Changed
+                    }
+                    MouseKind::ScrollUp => {
+                        self.previous();
+                        ListAction::Changed
+                    }
+                    MouseKind::Click => {
+                        let index = self.state.offset() + (mouse.row - self.area.y) as usize;
+                        if index < self.rendered_len {
+                            self.select(Some(index));
+                            ListAction::Changed
+                        } else {
+                            ListAction::Ignored
+                        }
+                    }
+                    MouseKind::DoubleClick => {
+                        let index = self.state.offset() + (mouse.row - self.area.y) as usize;
+                        if index < self.rendered_len {
+                            self.select(Some(index));
+                            ListAction::Activate(index)
+                        } else {
+                            ListAction::Ignored
+                        }
+                    }
+                    _ => ListAction::Ignored,
+                }
+            }
+            InputEvent::Paste(_) => ListAction::Ignored,
+        }
     }
 
     pub fn state_mut(&mut self) -> &mut ListState {

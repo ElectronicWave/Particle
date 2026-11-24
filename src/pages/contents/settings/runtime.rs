@@ -4,10 +4,10 @@ use std::{
 };
 
 use elemental::core::runtime::distribution::Distribution;
-use ratail::{KeyHint, Modal, ModalOutcome, SnapshotStatus};
+use ratail::{InputEvent, KeyHint, Modal, ModalOutcome, SnapshotStatus};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyModifiers},
     style::Style,
     text::{Line, Span},
 };
@@ -20,7 +20,7 @@ use crate::widgets::{
     cycle::Cycle,
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
-    list::ListSelection,
+    list::{ListAction, ListSelection},
     spinner,
 };
 
@@ -92,65 +92,69 @@ impl SettingsPane for RuntimePane {
         }
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {
+    fn on_input(&mut self, ctx: &Services, input: InputEvent) -> PaneEvent {
         if let Some(popup) = &mut self.picker {
-            match popup.on_key(ctx, key) {
-                ModalOutcome::Ignored => {}
-                ModalOutcome::Handled => return PaneEvent::Handled,
+            return match popup.on_input(ctx, input) {
+                ModalOutcome::Ignored => PaneEvent::Ignored,
+                ModalOutcome::Handled => PaneEvent::Handled,
                 ModalOutcome::Cancelled => {
                     self.picker = None;
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
                 ModalOutcome::Completed(path) => {
                     self.picker = None;
                     if self.add_runtime(ctx, path) {
                         self.runtime_dropdown = None;
                     }
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
-            }
+            };
         }
 
         if self.runtime_dropdown.is_some() {
-            if key.code == KeyCode::Delete
+            if let Some(key) = input.key()
+                && key.code == KeyCode::Delete
                 && !key
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && let Some(path) = self.selected_custom_runtime(ctx)
             {
-                if let Some(path) = self.selected_custom_runtime(ctx) {
-                    self.runtime_dropdown = None;
-                    self.remove_custom_runtime(ctx, &path);
-                    return PaneEvent::Handled;
-                }
+                self.runtime_dropdown = None;
+                self.remove_custom_runtime(ctx, &path);
+                return PaneEvent::Handled;
             }
 
             let popup = self
                 .runtime_dropdown
                 .as_mut()
                 .expect("runtime dropdown checked above");
-            match popup.on_key(ctx, key) {
-                ModalOutcome::Ignored => {}
-                ModalOutcome::Handled => return PaneEvent::Handled,
+            return match popup.on_input(ctx, input) {
+                ModalOutcome::Ignored => PaneEvent::Ignored,
+                ModalOutcome::Handled => PaneEvent::Handled,
                 ModalOutcome::Cancelled => {
                     self.runtime_dropdown = None;
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
                 ModalOutcome::Completed(choice) => {
                     self.select_runtime(ctx, choice);
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
-            }
+            };
         }
 
-        match key.code {
-            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
-                self.selected.handle_key(key.code);
-                PaneEvent::Handled
-            }
-            KeyCode::Enter => {
+        match self.selected.handle_input(&input) {
+            ListAction::Changed => return PaneEvent::Handled,
+            ListAction::Activate(_) => {
                 self.activate(ctx);
-                PaneEvent::Handled
+                return PaneEvent::Handled;
             }
+            ListAction::Ignored => {}
+        }
+
+        let Some(key) = input.key() else {
+            return PaneEvent::Ignored;
+        };
+        match key.code {
             KeyCode::Left => {
                 self.adjust(ctx, false);
                 PaneEvent::Handled

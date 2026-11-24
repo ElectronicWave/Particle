@@ -8,10 +8,10 @@ use elemental::{
     core::minecraft::MinecraftVersionId,
     driver::{driver::DriverDescriptor, loader_version::LoaderVersionId},
 };
-use ratail::{KeyHint, NavAction, Navigator, Page, PageEvent, Router};
+use ratail::{HitMap, InputEvent, KeyHint, MouseKind, NavAction, Navigator, Page, PageEvent, Router};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
@@ -100,6 +100,7 @@ fn name_hints() -> Vec<KeyHint> {
 pub struct CatalogContent {
     nav: Navigator<Services, CatalogRoute, CatalogRouter>,
     seen_session: Option<InstallSessionId>,
+    driver_hits: HitMap<usize>,
 }
 
 impl CatalogContent {
@@ -114,6 +115,7 @@ impl CatalogContent {
                 ctx,
             ),
             seen_session: ctx.install().latest_session(),
+            driver_hits: HitMap::new(),
         }
     }
 
@@ -132,13 +134,32 @@ impl CatalogContent {
             .unwrap_or(filter)
     }
 
-    fn handle_header(&mut self, ctx: &Services, key: KeyEvent) -> Option<PageEvent<Route>> {
+    fn handle_header(&mut self, ctx: &Services, input: &InputEvent) -> Option<PageEvent<Route>> {
         let (driver, filter, game_versions) = match self.nav.current_route()? {
             CatalogRoute::GameVersions { driver, filter } => (*driver, *filter, true),
             CatalogRoute::LoaderVersions { driver, filter, .. } => (*driver, *filter, false),
             CatalogRoute::InstanceName { .. } => return None,
         };
 
+        if let InputEvent::Mouse(mouse) = input {
+            if matches!(mouse.kind, MouseKind::Click | MouseKind::DoubleClick)
+                && let Some(hit) = self.driver_hits.hit_mouse_copied(*mouse)
+            {
+                if hit.id != driver {
+                    self.nav.reset(
+                        CatalogRoute::GameVersions {
+                            driver: hit.id,
+                            filter,
+                        },
+                        ctx,
+                    );
+                }
+                return Some(PageEvent::Handled);
+            }
+            return None;
+        }
+
+        let key = input.key()?;
         if let Some(step) = tab_step(key) {
             let next = cycle_index(ctx.catalog().drivers().len(), driver, step);
             if next == driver {
@@ -184,19 +205,27 @@ impl Page<Services> for CatalogContent {
     }
 
     fn render(&mut self, ctx: &Services, _route: &Route, frame: &mut Frame, area: Rect) {
+        self.driver_hits.clear();
         let theme = ctx.ui().theme();
         let [driver_area, body_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
         let driver = self.current_driver().unwrap_or_default();
-        render_driver_tabs(frame, driver_area, ctx.catalog().drivers(), driver, theme);
+        render_driver_tabs(
+            frame,
+            driver_area,
+            ctx.catalog().drivers(),
+            driver,
+            theme,
+            &mut self.driver_hits,
+        );
         self.nav.render(ctx, frame, body_area);
     }
 
-    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
-        if let Some(event) = self.handle_header(ctx, key) {
+    fn on_input(&mut self, ctx: &Services, _route: &Route, input: InputEvent) -> PageEvent<Route> {
+        if let Some(event) = self.handle_header(ctx, &input) {
             return event;
         }
-        if self.nav.handle_key(ctx, key) {
+        if self.nav.handle_input(ctx, input) {
             PageEvent::Handled
         } else {
             PageEvent::Ignored
@@ -234,16 +263,25 @@ fn render_driver_tabs(
     drivers: &[DriverDescriptor],
     selected: usize,
     theme: Theme,
+    hits: &mut HitMap<usize>,
 ) {
     let titles = drivers
         .iter()
         .map(|driver| driver_display::display_name(*driver))
         .collect::<Vec<_>>();
     let labels = titles.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-    frame.render_widget(TabBar::new(theme, &labels, selected), area);
+    let tabs = TabBar::new(theme, &labels, selected);
+    tabs.register_hits(area, hits, |index| index);
+    frame.render_widget(tabs, area);
 }
 
-fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter, theme: Theme) {
+fn render_filter_tabs(
+    frame: &mut Frame,
+    area: Rect,
+    selected: VersionFilter,
+    theme: Theme,
+    hits: &mut HitMap<VersionFilter>,
+) {
     let titles = VersionFilter::ORDER
         .iter()
         .map(|filter| filter.label().into_owned())
@@ -253,5 +291,7 @@ fn render_filter_tabs(frame: &mut Frame, area: Rect, selected: VersionFilter, th
         .iter()
         .position(|filter| *filter == selected)
         .unwrap_or(0);
-    frame.render_widget(TabBar::new(theme, &labels, index).secondary(), area);
+    let tabs = TabBar::new(theme, &labels, index).secondary();
+    tabs.register_hits(area, hits, |i| VersionFilter::ORDER[i]);
+    frame.render_widget(tabs, area);
 }

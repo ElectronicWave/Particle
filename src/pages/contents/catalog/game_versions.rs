@@ -2,10 +2,9 @@ use elemental::{
     core::minecraft::MinecraftVersionId,
     driver::{catalog::GameVersion, descriptors::VANILLA_DRIVER},
 };
-use ratail::{KeyHint, NavAction, Page, PageEvent};
+use ratail::{HitMap, InputEvent, KeyHint, MouseKind, NavAction, Page, PageEvent};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Layout, Rect},
     widgets::{List, ListItem},
 };
@@ -16,11 +15,12 @@ use crate::pages::content::{render_message, render_snapshot};
 use crate::services::Services;
 use crate::t;
 use crate::theme::Theme;
-use crate::widgets::list::ListSelection;
+use crate::widgets::list::{ListAction, ListSelection};
 
 #[derive(Default)]
 pub(super) struct GameVersionsPage {
     versions: ListSelection,
+    filter_hits: HitMap<VersionFilter>,
 }
 
 impl Page<Services, CatalogRoute> for GameVersionsPage {
@@ -41,21 +41,33 @@ impl Page<Services, CatalogRoute> for GameVersionsPage {
         }
     }
 
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         route: &CatalogRoute,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<CatalogRoute> {
         let CatalogRoute::GameVersions { driver, filter } = route else {
             return PageEvent::Ignored;
         };
-        match key.code {
-            KeyCode::Down | KeyCode::Up | KeyCode::Home | KeyCode::End => {
-                self.versions.handle_key(key.code);
+
+        if let InputEvent::Mouse(mouse) = input
+            && matches!(mouse.kind, MouseKind::Click | MouseKind::DoubleClick)
+            && let Some(hit) = self.filter_hits.hit_mouse_copied(mouse)
+        {
+            return if hit.id == *filter {
                 PageEvent::Handled
-            }
-            KeyCode::Enter => {
+            } else {
+                PageEvent::Navigate(NavAction::Reset(CatalogRoute::GameVersions {
+                    driver: *driver,
+                    filter: hit.id,
+                }))
+            };
+        }
+
+        match self.versions.handle_input(&input) {
+            ListAction::Changed => PageEvent::Handled,
+            ListAction::Activate(_) => {
                 let Some(game) = self.selected_game(ctx, *driver, *filter) else {
                     return PageEvent::Handled;
                 };
@@ -75,7 +87,7 @@ impl Page<Services, CatalogRoute> for GameVersionsPage {
                     }))
                 }
             }
-            _ => PageEvent::Ignored,
+            ListAction::Ignored => PageEvent::Ignored,
         }
     }
 
@@ -84,13 +96,14 @@ impl Page<Services, CatalogRoute> for GameVersionsPage {
     }
 
     fn render(&mut self, ctx: &Services, route: &CatalogRoute, frame: &mut Frame, area: Rect) {
+        self.filter_hits.clear();
         let CatalogRoute::GameVersions { driver, filter } = route else {
             return;
         };
         let theme = ctx.ui().theme();
         let [filter_area, body_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-        super::render_filter_tabs(frame, filter_area, *filter, theme);
+        super::render_filter_tabs(frame, filter_area, *filter, theme, &mut self.filter_hits);
         let snapshot = ctx
             .catalog()
             .versions(ctx.catalog().drivers()[*driver])
@@ -121,6 +134,7 @@ impl GameVersionsPage {
             .collect::<Vec<&GameVersion>>();
 
         if versions.is_empty() {
+            self.versions.clear_area();
             let message = match filter {
                 VersionFilter::All => t!("catalog.no_versions"),
                 _ => t!("catalog.no_channel_versions"),
@@ -135,6 +149,7 @@ impl GameVersionsPage {
             .collect::<Vec<ListItem>>();
         let list = List::new(items).highlight_style(theme.selection_style());
 
+        self.versions.set_area(area, versions.len());
         frame.render_stateful_widget(list, area, self.versions.state_mut());
     }
 

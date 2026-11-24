@@ -1,7 +1,7 @@
-use ratail::{KeyHint, NavAction, Page, PageEvent};
+use ratail::{InputEvent, KeyHint, NavAction, Page, PageEvent};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyModifiers},
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
@@ -40,41 +40,55 @@ impl InstanceNamePage {
 }
 
 impl Page<Services, CatalogRoute> for InstanceNamePage {
-    fn on_key(
+    fn on_input(
         &mut self,
         ctx: &Services,
         _route: &CatalogRoute,
-        key: KeyEvent,
+        input: InputEvent,
     ) -> PageEvent<CatalogRoute> {
-        match key.code {
-            KeyCode::Esc => PageEvent::Navigate(NavAction::Pop),
-            KeyCode::Backspace => {
-                self.input.pop();
+        match input {
+            InputEvent::Paste(text) => {
+                for character in text.chars() {
+                    if !matches!(
+                        character,
+                        '\r' | '\n' | '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                    ) {
+                        self.input.push(character);
+                    }
+                }
                 PageEvent::Handled
             }
-            KeyCode::Enter => {
-                let name = self.input.trim().to_owned();
-                if name.is_empty() {
+            InputEvent::Key(key) => match key.code {
+                KeyCode::Esc => PageEvent::Navigate(NavAction::Pop),
+                KeyCode::Backspace => {
+                    self.input.pop();
                     PageEvent::Handled
-                } else {
-                    self.start_install(ctx, name);
-                    PageEvent::Navigate(NavAction::Pop)
                 }
-            }
-            KeyCode::Char(character)
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                if !matches!(
-                    character,
-                    '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
-                ) {
-                    self.input.push(character);
+                KeyCode::Enter => {
+                    let name = self.input.trim().to_owned();
+                    if name.is_empty() {
+                        PageEvent::Handled
+                    } else {
+                        self.start_install(ctx, name);
+                        PageEvent::Navigate(NavAction::Pop)
+                    }
                 }
-                PageEvent::Handled
-            }
-            _ => PageEvent::Ignored,
+                KeyCode::Char(character)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    if !matches!(
+                        character,
+                        '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                    ) {
+                        self.input.push(character);
+                    }
+                    PageEvent::Handled
+                }
+                _ => PageEvent::Ignored,
+            },
+            InputEvent::Mouse(_) => PageEvent::Ignored,
         }
     }
 

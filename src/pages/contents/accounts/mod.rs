@@ -8,12 +8,12 @@ use elemental::core::auth::{
     accounts::AccountId, authorizers::offline::OFFLINE_AUTHORIZER_ID, texture::SkinModel,
 };
 use ratail::{
-    KeyChord, KeyHint, KeyMap, Modal, ModalHost, ModalOutcome, ModalPage, NavAction, Navigator,
-    Page, PageEvent, Router, Snapshot, SnapshotView,
+    InputEvent, KeyChord, KeyHint, KeyMap, Modal, ModalHost, ModalOutcome, ModalPage, NavAction,
+    Navigator, Page, PageEvent, Router, Snapshot, SnapshotView,
 };
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
     style::Style,
     text::{Line, Span},
@@ -117,8 +117,8 @@ impl Page<Services> for AccountsContent {
         self.nav.render(ctx, frame, area);
     }
 
-    fn on_key(&mut self, ctx: &Services, _route: &Route, key: KeyEvent) -> PageEvent<Route> {
-        if self.nav.handle_key(ctx, key) {
+    fn on_input(&mut self, ctx: &Services, _route: &Route, input: InputEvent) -> PageEvent<Route> {
+        if self.nav.handle_input(ctx, input) {
             PageEvent::Handled
         } else {
             PageEvent::Ignored
@@ -163,8 +163,8 @@ impl NamePrompt {
 impl Modal<Services> for NamePrompt {
     type Value = String;
 
-    fn on_key(&mut self, _ctx: &Services, key: KeyEvent) -> ModalOutcome<String> {
-        match self.edit.handle_key(key) {
+    fn on_input(&mut self, _ctx: &Services, input: InputEvent) -> ModalOutcome<String> {
+        match self.edit.handle_input(&input) {
             EditEvent::Submit => {
                 let name = self.edit.input().trim().to_owned();
                 if name.is_empty() {

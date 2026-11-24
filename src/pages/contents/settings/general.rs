@@ -1,9 +1,9 @@
 use std::{borrow::Cow, path::PathBuf};
 
-use ratail::{Context as _, KeyHint, Modal, ModalOutcome};
+use ratail::{Context as _, InputEvent, KeyHint, Modal, ModalOutcome};
 use ratatui::{
     Frame,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyModifiers},
     text::Line,
 };
 
@@ -16,7 +16,7 @@ use crate::widgets::{
     cycle::Cycle,
     dropdown::Dropdown,
     filepicker::{FilePicker, FilePickerMode, FilePickerOptions},
-    list::ListSelection,
+    list::{ListAction, ListSelection},
     text_edit::{EditEvent, TextEdit},
 };
 
@@ -70,52 +70,56 @@ impl SettingsPane for GeneralPane {
         }
     }
 
-    fn on_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {
+    fn on_input(&mut self, ctx: &Services, input: InputEvent) -> PaneEvent {
         if let Some(popup) = &mut self.language {
-            match popup.on_key(ctx, key) {
-                ModalOutcome::Ignored => {}
-                ModalOutcome::Handled => return PaneEvent::Handled,
+            return match popup.on_input(ctx, input) {
+                ModalOutcome::Ignored => PaneEvent::Ignored,
+                ModalOutcome::Handled => PaneEvent::Handled,
                 ModalOutcome::Cancelled => {
                     self.language = None;
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
                 ModalOutcome::Completed(code) => {
                     self.language = None;
                     self.select_language(ctx, code);
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
-            }
+            };
         }
 
         if let Some(popup) = &mut self.picker {
-            match popup.on_key(ctx, key) {
-                ModalOutcome::Ignored => {}
-                ModalOutcome::Handled => return PaneEvent::Handled,
+            return match popup.on_input(ctx, input) {
+                ModalOutcome::Ignored => PaneEvent::Ignored,
+                ModalOutcome::Handled => PaneEvent::Handled,
                 ModalOutcome::Cancelled => {
                     self.picker = None;
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
                 ModalOutcome::Completed(path) => {
                     self.picker = None;
                     self.set_storage_root(ctx, path);
-                    return PaneEvent::Handled;
+                    PaneEvent::Handled
                 }
-            }
+            };
         }
 
         if self.edit.is_some() {
-            return self.on_edit_key(ctx, key);
+            return self.on_edit_input(ctx, input);
         }
 
-        match key.code {
-            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
-                self.selected.handle_key(key.code);
-                PaneEvent::Handled
-            }
-            KeyCode::Enter => {
+        match self.selected.handle_input(&input) {
+            ListAction::Changed => return PaneEvent::Handled,
+            ListAction::Activate(_) => {
                 self.activate(ctx);
-                PaneEvent::Handled
+                return PaneEvent::Handled;
             }
+            ListAction::Ignored => {}
+        }
+
+        let Some(key) = input.key() else {
+            return PaneEvent::Ignored;
+        };
+        match key.code {
             KeyCode::Char('e' | 'E')
                 if !key
                     .modifiers
@@ -224,9 +228,9 @@ impl GeneralPane {
         self.edit = Some(TextEdit::new(config.storage_root.display().to_string()));
     }
 
-    fn on_edit_key(&mut self, ctx: &Services, key: KeyEvent) -> PaneEvent {
+    fn on_edit_input(&mut self, ctx: &Services, input: InputEvent) -> PaneEvent {
         let event = match self.edit.as_mut() {
-            Some(edit) => edit.handle_key(key),
+            Some(edit) => edit.handle_input(&input),
             None => return PaneEvent::Ignored,
         };
 
