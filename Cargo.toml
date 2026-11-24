@@ -12,6 +12,7 @@ elemental = { git = "https://github.com/ElectronicWave/Elemental", branch = "mai
     "offline-server",
     "driver-all",
     "microsoft-auth",
+    "tls-aws-lc",
 ] }
 anyhow = "1.0.102"
 ratail = { git = "https://github.com/ElectronicWave/ratail" }
